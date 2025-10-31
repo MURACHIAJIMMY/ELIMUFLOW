@@ -1,4 +1,4 @@
-const School = require('../models/School');
+const School = require('../models/school');
 
 // 🏫 Create a new school (admin only)
 const createSchool = async (req, res) => {
