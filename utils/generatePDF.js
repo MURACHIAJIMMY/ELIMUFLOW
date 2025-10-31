@@ -266,7 +266,6 @@ const generatePDF = async (reportForms, metadata) => {
   `;
 
   const browser = await puppeteer.launch({
-  executablePath: puppeteer.executablePath(),
   args: ['--no-sandbox', '--disable-setuid-sandbox'],
 });
   const page = await browser.newPage();
