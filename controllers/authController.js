@@ -1,5 +1,5 @@
 const School = require('../models/school');
-const Teacher = require('../models/Teacher');
+const Teacher = require('../models/teacher');
 const jwt = require('jsonwebtoken');
 
 const signup = async (req, res) => {
