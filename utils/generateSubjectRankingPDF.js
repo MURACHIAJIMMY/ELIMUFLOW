@@ -1,7 +1,7 @@
-const puppeteer = require('puppeteer');
+const puppeteer = require("puppeteer");
+const path = require("path");
 
 const generateSubjectRankingPDF = async (ranking, metadata, scope) => {
-  // Group by class → pathway
   const grouped = {};
   ranking.forEach(r => {
     grouped[r.class] ??= {};
@@ -83,11 +83,15 @@ const generateSubjectRankingPDF = async (ranking, metadata, scope) => {
     </html>
   `;
 
-  const browser = await puppeteer.launch({ headless: 'new' });
-  const page = await browser.newPage();
-  await page.setContent(html, { waitUntil: 'networkidle0' });
+  const browser = await puppeteer.launch({
+    executablePath: path.resolve(__dirname, "../.chrome-cache/chrome/linux-142.0.7444.59/chrome-linux64/chrome"),
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
+  });
 
-  const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+  const page = await browser.newPage();
+  await page.setContent(html, { waitUntil: "networkidle0" });
+
+  const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
   await browser.close();
 
   return pdfBuffer;

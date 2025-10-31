@@ -1,4 +1,5 @@
 const puppeteer = require("puppeteer");
+const path = require("path");
 
 const generateGradeDistributionPDF = async (distribution, metadata) => {
   const { title, exam, term, year, gradeBands, mode, stream, schoolName, schoolLogo } = metadata;
@@ -123,7 +124,11 @@ const generateGradeDistributionPDF = async (distribution, metadata) => {
     </html>
   `;
 
-  const browser = await puppeteer.launch();
+  const browser = await puppeteer.launch({
+    executablePath: path.resolve(__dirname, "../.chrome-cache/chrome/linux-142.0.7444.59/chrome-linux64/chrome"),
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
+  });
+
   const page = await browser.newPage();
   await page.setContent(html, { waitUntil: "networkidle0" });
   const pdfBuffer = await page.pdf({
