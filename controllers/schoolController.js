@@ -14,7 +14,7 @@ const createSchool = async (req, res) => {
       return res.status(409).json({ error: 'School with this code already exists' });
     }
 
-    const school = new School({ name, code, logo, location, contact });
+    const school = new School({ name, code, logo, email, motto,location, contact });
     await school.save();
 
     res.status(201).json({ message: 'School created successfully', school });
