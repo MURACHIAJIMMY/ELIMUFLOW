@@ -47,6 +47,37 @@ const signup = async (req, res) => {
     res.status(500).json({ error: 'Signup failed' });
   }
 };
+// ✅ Admin-only update teacher by username
+const updateTeacherByUsername = async (req, res) => {
+  try {
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can update accounts' });
+    }
+
+    const { username } = req.params;
+    const updates = req.body;
+
+    if (updates.role && !['teacher', 'admin', 'principal'].includes(updates.role.toLowerCase())) {
+      return res.status(400).json({ error: 'Invalid role specified' });
+    }
+
+    const teacher = await Teacher.findOneAndUpdate(
+      { username: username.toLowerCase() },
+      updates,
+      { new: true }
+    );
+
+    if (!teacher) {
+      return res.status(404).json({ error: 'Teacher not found' });
+    }
+
+    res.status(200).json({ message: 'Teacher updated successfully', teacher });
+  } catch (err) {
+    console.error('[UpdateTeacherByUsername]', err);
+    res.status(500).json({ error: 'Error updating teacher' });
+  }
+};
+
 
 // ✅ Verify school code and return branding info
 const verifySchoolCode = async (req, res) => {
@@ -119,5 +150,25 @@ const loginTeacher = async (req, res) => {
     res.status(500).json({ error: 'Error logging in' });
   }
 };
+// ✅ Admin-only delete teacher by username
+const deleteTeacherByUsername = async (req, res) => {
+  try {
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can delete accounts' });
+    }
 
-module.exports = { signup, verifySchoolCode, loginTeacher };
+    const { username } = req.params;
+
+    const deleted = await Teacher.findOneAndDelete({ username: username.toLowerCase() });
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Teacher not found' });
+    }
+
+    res.status(200).json({ message: 'Teacher deleted successfully' });
+  } catch (err) {
+    console.error('[DeleteTeacherByUsername]', err);
+    res.status(500).json({ error: 'Error deleting teacher' });
+  }
+};
+module.exports = { signup, verifySchoolCode, loginTeacher, updateTeacherByUsername, deleteTeacherByUsername };

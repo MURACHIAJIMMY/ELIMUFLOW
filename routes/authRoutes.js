@@ -3,7 +3,9 @@ const router = express.Router();
 const {
   signup,
   verifySchoolCode,
-  loginTeacher
+  loginTeacher,
+  updateTeacherByUsername,
+  deleteTeacherByUsername
 } = require('../controllers/authController');
 
 const { verifyToken, checkRole } = require('../middleware/authMiddleware');
@@ -20,5 +22,8 @@ router.post('/verify-school', verifySchoolCode);
 
 // ✅ Login teacher
 router.post('/login', loginTeacher);
+// ✅ Admin-only update teacher by username
+router.put('/update/:username', verifyToken, checkRole(['admin']), updateTeacherByUsername);
+router.delete('/delete/:username', verifyToken, checkRole(['admin']), deleteTeacherByUsername);
 
 module.exports = router;
