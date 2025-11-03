@@ -41,7 +41,7 @@ const studentSchema = new mongoose.Schema({
   track: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Track',
-    required: true
+    required: false
   },
   class: {
     type: mongoose.Schema.Types.ObjectId,

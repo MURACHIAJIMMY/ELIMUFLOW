@@ -224,36 +224,23 @@ const bulkRegisterStudents = async (req, res) => {
 };
 
 
+// 📄 Get individual student profile
 const getStudentProfile = async (req, res) => {
   try {
     const { studentId } = req.params;
-
     const student = await Student.findById(studentId)
-      .populate('class pathway track');
+      .populate('class pathway track selectedSubjects');
 
-    if (!student) return res.status(404).json({ error: 'Student not found.' });
+    if (!student)
+      return res.status(404).json({ error: 'Student not found.' });
 
-    const subjectLinks = await StudentSubject.find({ student: student._id })
-      .populate('subject', 'name code group');
+    res.status(200).json(student);
 
-    const subjects = subjectLinks
-      .filter(link => link.subject)
-      .map(link => ({
-        name: link.subject.name,
-        code: link.subject.code,
-        group: link.subject.group,
-        autoAssigned: link.autoAssigned,
-        category: link.category
-      }));
-
-    res.status(200).json({
-      student,
-      subjects
-    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+S
 
 // 📄 Get all students
 const getAllStudents = async (req, res) => {
