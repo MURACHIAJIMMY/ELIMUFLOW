@@ -224,19 +224,37 @@ const bulkRegisterStudents = async (req, res) => {
 };
 
 
-// 📄 Get individual student profile
 const getStudentProfile = async (req, res) => {
   try {
     const { studentId } = req.params;
+
     const student = await Student.findById(studentId)
-      .populate('class pathway track selectedSubjects');
+      .populate('class pathway track');
 
     if (!student) return res.status(404).json({ error: 'Student not found.' });
-    res.status(200).json(student);
+
+    const subjectLinks = await StudentSubject.find({ student: student._id })
+      .populate('subject', 'name code group');
+
+    const subjects = subjectLinks
+      .filter(link => link.subject)
+      .map(link => ({
+        name: link.subject.name,
+        code: link.subject.code,
+        group: link.subject.group,
+        autoAssigned: link.autoAssigned,
+        category: link.category
+      }));
+
+    res.status(200).json({
+      student,
+      subjects
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
 // 📄 Get all students
 const getAllStudents = async (req, res) => {
   try {
@@ -408,63 +426,17 @@ const getStudentsWithSubjectsByClassName = async (req, res) => {
       return res.status(404).json({ message: 'Class not found' });
 
     const students = await Student.find({ class: cls._id })
-      .populate('pathway', 'name')
-      .populate('track', 'name')
-      .populate('selectedSubjects', 'name code group')
-      .select('admNo name grade selectedSubjects pathway track');
-
-    const formatted = await Promise.all(
-      students.map(async s => {
-        let subjectLinks = await StudentSubject.find({ student: s._id })
-          .populate('subject', 'name code group');
-
-        if (!subjectLinks.length && s.selectedSubjects?.length) {
-          subjectLinks = s.selectedSubjects.map(sub => ({
-            subject: sub,
-            autoAssigned: false,
-            category: 'Elective',
-            term: null,
-            year: null
-          }));
-        }
-
-        const subjects = subjectLinks
-          .filter(link => link.subject)
-          .map(link => ({
-            _id: link.subject._id,
-            name: link.subject.name,
-            code: link.subject.code,
-            group: link.subject.group,
-            autoAssigned: link.autoAssigned,
-            category: link.category,
-            term: link.term,
-            year: link.year
-          }));
-
-        const compulsorySubjects = subjects.filter(sub => sub.category === 'Compulsory');
-        const electiveSubjects = subjects.filter(sub => sub.category === 'Elective');
-
-        return {
-          _id: s._id,
-          admNo: s.admNo,
-          name: s.name,
-          grade: s.grade,
-          pathway: s.pathway?.name ?? '—',
-          track: s.track?.name ?? '—',
-          subjectCount: subjects.length,
-          compulsorySubjects,
-          electiveSubjects
-        };
-      })
-    );
+      .populate('selectedSubjects', 'name group compulsory')
+      .select('admNo name grade selectedSubjects');
 
     res.status(200).json({
       class: { name: cls.name, grade: cls.grade },
-      count: formatted.length,
-      students: formatted
+      count: students.length,
+      students
     });
+
   } catch (err) {
-    console.error('[getStudentsWithSubjectsByClassName]', err);
+    console.error('[GetStudentsWithSubjectsByClassName]', err);
     res.status(500).json({ error: 'Error fetching students by class' });
   }
 };
