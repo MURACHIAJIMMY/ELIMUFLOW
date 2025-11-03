@@ -5,10 +5,6 @@ const Pathway = require('../models/pathway');
 const Track = require('../models/track');
 const StudentSubject = require('../models/studentSubject');
 
-// const StudentSubject = require('../models/studentSubject');
-const paperConfig = require('../models/paperConfig');
-const subjectSelection=require('../models/subjectSelection');
-
 // 📝 Register a new student
 const registerStudent = async (req, res) => {
   try {
@@ -251,11 +247,24 @@ const getAllStudents = async (req, res) => {
     const students = await Student.find()
       .populate('pathway', 'name')
       .populate('track', 'name')
-      .populate('class'); // ✅ include grade
+      .populate('class', 'grade');
 
     const formatted = await Promise.all(
       students.map(async s => {
-        const subjectCount = await StudentSubject.countDocuments({ student: s._id });
+        const subjectLinks = await StudentSubject.find({ student: s._id }).populate('subject', 'name code group');
+
+        const subjects = subjectLinks.map(link => ({
+          _id: link.subject._id,
+          name: link.subject.name,
+          code: link.subject.code,
+          group: link.subject.group,
+          autoAssigned: link.autoAssigned,
+          term: link.term,
+          year: link.year
+        }));
+
+        const autoAssignedSubjects = subjects.filter(sub => sub.autoAssigned);
+        const optionalSubjects = subjects.filter(sub => !sub.autoAssigned);
 
         return {
           _id: s._id,
@@ -263,13 +272,15 @@ const getAllStudents = async (req, res) => {
           name: s.name,
           gender: s.gender,
           grade: s.grade,
-          currentGrade: s.currentGrade ?? s.class?.grade ?? '—', // ✅ fallback to class.grade
+          currentGrade: s.currentGrade ?? s.class?.grade ?? '—',
           enrollmentYear: s.enrollmentYear ?? '—',
           status: s.status ?? '—',
           pathway: s.pathway?.name ?? '—',
           track: s.track?.name ?? '—',
           class: s.class?.name ?? '—',
-          subjectCount
+          subjectCount: subjects.length,
+          autoAssignedSubjects,
+          optionalSubjects
         };
       })
     );
@@ -281,29 +292,6 @@ const getAllStudents = async (req, res) => {
   } catch (err) {
     console.error('[GetAllStudents]', err);
     res.status(500).json({ error: 'Error fetching students' });
-  }
-};
-
-// 📚 Get subjects for a specific student
-const getStudentSubjects = async (req, res) => {
-  try {
-    const { studentId } = req.params;
-
-    const student = await Student.findById(studentId).populate('selectedSubjects', 'name group compulsory');
-    if (!student) return res.status(404).json({ message: 'Student not found' });
-
-    res.status(200).json({
-      student: {
-        id: student._id,
-        name: student.name,
-        admNo: student.admNo,
-        grade: student.grade
-      },
-      subjects: student.selectedSubjects
-    });
-  } catch (err) {
-    console.error('[GetStudentSubjects]', err);
-    res.status(500).json({ error: 'Error fetching student subjects' });
   }
 };
 
@@ -336,16 +324,42 @@ const getStudentsWithSubjectsByClassName = async (req, res) => {
     if (!cls) return res.status(404).json({ message: 'Class not found' });
 
     const students = await Student.find({ class: cls._id })
-      .populate('selectedSubjects', 'name group compulsory')
-      .select('admNo name grade selectedSubjects');
+      .populate('pathway', 'name')
+      .populate('track', 'name')
+      .populate('class', 'grade');
+
+    const enriched = await Promise.all(
+      students.map(async s => {
+        const subjectLinks = await StudentSubject.find({ student: s._id }).populate('subject', 'name code group');
+
+        const subjects = subjectLinks.map(link => ({
+          _id: link.subject._id,
+          name: link.subject.name,
+          code: link.subject.code,
+          group: link.subject.group,
+          autoAssigned: link.autoAssigned
+        }));
+
+        return {
+          _id: s._id,
+          admNo: s.admNo,
+          name: s.name,
+          grade: s.currentGrade ?? s.class?.grade ?? '—',
+          pathway: s.pathway?.name ?? '—',
+          track: s.track?.name ?? '—',
+          selectedSubjects: subjects,
+          subjectCount: subjects.length
+        };
+      })
+    );
 
     res.status(200).json({
       class: {
         name: cls.name,
         grade: cls.grade
       },
-      count: students.length,
-      students
+      count: enriched.length,
+      students: enriched
     });
   } catch (err) {
     console.error('[GetStudentsWithSubjectsByClassName]', err);
@@ -576,6 +590,7 @@ const getStudentSubjectsByAdmNo = async (req, res) => {
     res.status(500).json({ error: 'Error fetching student subjects by admNo' });
   }
 };
+
 
 module.exports = {
   registerStudent,
