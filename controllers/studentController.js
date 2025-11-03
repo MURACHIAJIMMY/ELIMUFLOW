@@ -246,14 +246,28 @@ const getAllStudents = async (req, res) => {
     const students = await Student.find()
       .populate('pathway', 'name')
       .populate('track', 'name')
-      .populate('class', 'grade name'); // ✅ include class name like "11E"
+      .populate('class', 'grade name')
+      .populate({
+        path: 'selectedSubjects',
+        select: 'name code group'
+      });
 
     const formatted = await Promise.all(
       students.map(async s => {
-        const subjectLinks = await StudentSubject.find({ student: s._id })
+        // Try to load from StudentSubject first
+        let subjectLinks = await StudentSubject.find({ student: s._id })
           .populate('subject', 'name code group');
 
-        // ✅ Skip broken links where subject is null
+        // If no StudentSubject entries found, fallback to selectedSubjects
+        if (!subjectLinks.length && s.selectedSubjects?.length) {
+          subjectLinks = s.selectedSubjects.map(sub => ({
+            subject: sub,
+            autoAssigned: false,
+            term: null,
+            year: null
+          }));
+        }
+
         const subjects = subjectLinks
           .filter(link => link.subject)
           .map(link => ({
@@ -279,7 +293,7 @@ const getAllStudents = async (req, res) => {
           class: s.class?.name ?? '—',
           pathway: s.pathway?.name ?? '—',
           track: s.track?.name ?? '—',
-          subjectCount: subjects.length, // ✅ includes both compulsory + optional
+          subjectCount: subjects.length,
           autoAssignedSubjects,
           optionalSubjects
         };
