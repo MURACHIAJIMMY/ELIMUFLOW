@@ -24,7 +24,6 @@ const registerStudent = async (req, res) => {
     const exists = await Student.findOne({ admNo: admNo.toUpperCase() });
     if (exists) return res.status(409).json({ error: 'Admission number already exists.' });
 
-    // ✅ Resolve pathway and class (track is optional)
     const pathwayDoc = await Pathway.findOne({ name: pathwayName });
     const trackDoc = trackName ? await Track.findOne({ name: trackName }) : null;
     const classDoc = await Class.findOne({ name: className });
@@ -33,7 +32,6 @@ const registerStudent = async (req, res) => {
       return res.status(400).json({ error: 'Invalid pathway or class name.' });
     }
 
-    // ✅ Fetch all subjects
     const [english, csl, kiswahili, ksl, coreMath, essentialMath, allSubjects] = await Promise.all([
       Subject.findOne({ code: 'ENG' }),
       Subject.findOne({ code: 'CSL' }),
@@ -44,7 +42,6 @@ const registerStudent = async (req, res) => {
       Subject.find()
     ]);
 
-    // ✅ CBC math logic
     const mathSubject =
       mathChoice === 'core' ? coreMath :
       mathChoice === 'essential' ? essentialMath :
@@ -57,7 +54,6 @@ const registerStudent = async (req, res) => {
       mathSubject?._id
     ].filter(Boolean);
 
-    // ✅ Validate optional subjects against pathway
     const subjectsByPathway = allSubjects.reduce((acc, subj) => {
       const key = subj.pathway?.toString();
       if (!acc[key]) acc[key] = [];
@@ -82,14 +78,15 @@ const registerStudent = async (req, res) => {
       selectedSubjects: finalSubjects
     });
 
-    // ✅ Store subjects in StudentSubject model
     await Promise.all(
       finalSubjects.map(subjectId => {
         const isAuto = compulsorySubjects.includes(subjectId);
+        const category = isAuto ? 'Compulsory' : 'Elective';
         return StudentSubject.create({
           student: student._id,
           subject: subjectId,
-          autoAssigned: isAuto
+          autoAssigned: isAuto,
+          category
         });
       })
     );
@@ -109,7 +106,6 @@ const bulkRegisterStudents = async (req, res) => {
       return res.status(400).json({ error: 'Provide an array of student objects.' });
     }
 
-    // ✅ Fetch compulsory subjects once
     const [english, csl, kiswahili, ksl, coreMath, essentialMath] = await Promise.all([
       Subject.findOne({ code: 'ENG' }),
       Subject.findOne({ code: 'CSL' }),
@@ -119,7 +115,6 @@ const bulkRegisterStudents = async (req, res) => {
       Subject.findOne({ code: 'MATH-ESS' })
     ]);
 
-    // ✅ Build pathway, track, class, and subject maps
     const [pathwayDocs, trackDocs, classDocs, allSubjects] = await Promise.all([
       Pathway.find(),
       Track.find(),
@@ -157,7 +152,7 @@ const bulkRegisterStudents = async (req, res) => {
         if (exists) return null;
 
         const pathwayId = pathwayMap[pathwayName];
-        const trackId = trackMap[trackName]; // optional
+        const trackId = trackMap[trackName];
         const classId = classMap[className];
 
         if (!pathwayId || !classId) {
@@ -190,7 +185,7 @@ const bulkRegisterStudents = async (req, res) => {
           currentGrade,
           class: classId,
           pathway: pathwayId,
-          track: trackId || undefined, // optional
+          track: trackId || undefined,
           selectedSubjects: finalSubjects,
           compulsorySubjects
         };
@@ -205,16 +200,17 @@ const bulkRegisterStudents = async (req, res) => {
       })
     );
 
-    // ✅ Link subjects to StudentSubject model
     await Promise.all(
       created.flatMap((student, i) => {
         const { compulsorySubjects, selectedSubjects } = filtered[i];
         return selectedSubjects.map(subjectId => {
           const isAuto = compulsorySubjects.includes(subjectId);
+          const category = isAuto ? 'Compulsory' : 'Elective';
           return StudentSubject.create({
             student: student._id,
             subject: subjectId,
-            autoAssigned: isAuto
+            autoAssigned: isAuto,
+            category
           });
         });
       })
@@ -226,6 +222,7 @@ const bulkRegisterStudents = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
 
 // 📄 Get individual student profile
 const getStudentProfile = async (req, res) => {
@@ -254,20 +251,22 @@ const getAllStudents = async (req, res) => {
 
     const formatted = await Promise.all(
       students.map(async s => {
-        // Try to load from StudentSubject first
+        // 🔄 Load synced subjects from StudentSubject
         let subjectLinks = await StudentSubject.find({ student: s._id })
           .populate('subject', 'name code group');
 
-        // If no StudentSubject entries found, fallback to selectedSubjects
+        // 🧯 Fallback to selectedSubjects if StudentSubject is empty
         if (!subjectLinks.length && s.selectedSubjects?.length) {
           subjectLinks = s.selectedSubjects.map(sub => ({
             subject: sub,
             autoAssigned: false,
+            category: 'Elective',
             term: null,
             year: null
           }));
         }
 
+        // 🧠 Format subject metadata
         const subjects = subjectLinks
           .filter(link => link.subject)
           .map(link => ({
@@ -276,12 +275,14 @@ const getAllStudents = async (req, res) => {
             code: link.subject.code,
             group: link.subject.group,
             autoAssigned: link.autoAssigned,
+            category: link.category,
             term: link.term,
             year: link.year
           }));
 
-        const autoAssignedSubjects = subjects.filter(sub => sub.autoAssigned);
-        const optionalSubjects = subjects.filter(sub => !sub.autoAssigned);
+        // 📘 Group by category
+        const compulsorySubjects = subjects.filter(sub => sub.category === 'Compulsory');
+        const electiveSubjects = subjects.filter(sub => sub.category === 'Elective');
 
         return {
           _id: s._id,
@@ -294,8 +295,8 @@ const getAllStudents = async (req, res) => {
           pathway: s.pathway?.name ?? '—',
           track: s.track?.name ?? '—',
           subjectCount: subjects.length,
-          autoAssignedSubjects,
-          optionalSubjects
+          compulsorySubjects,
+          electiveSubjects
         };
       })
     );
@@ -305,7 +306,7 @@ const getAllStudents = async (req, res) => {
       students: formatted
     });
   } catch (err) {
-    console.error('[GetAllStudents]', err);
+    console.error('[getAllStudents]', err);
     res.status(500).json({ error: 'Error fetching students' });
   }
 };
@@ -314,27 +315,68 @@ const getAllStudents = async (req, res) => {
 const getStudentSubjects = async (req, res) => {
   try {
     const { studentId } = req.params;
-    const student = await Student.findById(studentId).populate('selectedSubjects', 'name group compulsory');
 
-    if (!student) 
+    const student = await Student.findById(studentId)
+      .populate('pathway', 'name')
+      .populate('track', 'name')
+      .populate('class', 'grade name')
+      .populate('selectedSubjects', 'name code group');
+
+    if (!student)
       return res.status(404).json({ message: 'Student not found' });
 
-    res.status(200).json({ 
-      student: { 
-        id: student._id, 
-        name: student.name, 
-        admNo: student.admNo, 
-        grade: student.grade 
-      }, 
-      subjects: student.selectedSubjects 
-    });
+    // 🔄 Load synced subjects from StudentSubject
+    let subjectLinks = await StudentSubject.find({ student: student._id })
+      .populate('subject', 'name code group');
 
+    // 🧯 Fallback to selectedSubjects if StudentSubject is empty
+    if (!subjectLinks.length && student.selectedSubjects?.length) {
+      subjectLinks = student.selectedSubjects.map(sub => ({
+        subject: sub,
+        autoAssigned: false,
+        category: 'Elective',
+        term: null,
+        year: null
+      }));
+    }
+
+    // 🧠 Format subject metadata
+    const subjects = subjectLinks
+      .filter(link => link.subject)
+      .map(link => ({
+        _id: link.subject._id,
+        name: link.subject.name,
+        code: link.subject.code,
+        group: link.subject.group,
+        autoAssigned: link.autoAssigned,
+        category: link.category,
+        term: link.term,
+        year: link.year
+      }));
+
+    // 📘 Group by category
+    const compulsorySubjects = subjects.filter(sub => sub.category === 'Compulsory');
+    const electiveSubjects = subjects.filter(sub => sub.category === 'Elective');
+
+    res.status(200).json({
+      student: {
+        id: student._id,
+        name: student.name,
+        admNo: student.admNo,
+        grade: student.grade,
+        class: student.class?.name ?? '—',
+        pathway: student.pathway?.name ?? '—',
+        track: student.track?.name ?? '—'
+      },
+      subjectCount: subjects.length,
+      compulsorySubjects,
+      electiveSubjects
+    });
   } catch (err) {
-    console.error('[GetStudentSubjects]', err);
+    console.error('[getStudentSubjects]', err);
     res.status(500).json({ error: 'Error fetching student subjects' });
   }
 };
-
 
 // 📄 Get all students with their subjects
 const getAllStudentsWithSubjects = async (req, res) => {
@@ -366,20 +408,67 @@ const getStudentsWithSubjectsByClassName = async (req, res) => {
       return res.status(404).json({ message: 'Class not found' });
 
     const students = await Student.find({ class: cls._id })
-      .populate('selectedSubjects', 'name group compulsory')
-      .select('admNo name grade selectedSubjects');
+      .populate('pathway', 'name')
+      .populate('track', 'name')
+      .populate('selectedSubjects', 'name code group')
+      .select('admNo name grade selectedSubjects pathway track');
+
+    const formatted = await Promise.all(
+      students.map(async s => {
+        let subjectLinks = await StudentSubject.find({ student: s._id })
+          .populate('subject', 'name code group');
+
+        if (!subjectLinks.length && s.selectedSubjects?.length) {
+          subjectLinks = s.selectedSubjects.map(sub => ({
+            subject: sub,
+            autoAssigned: false,
+            category: 'Elective',
+            term: null,
+            year: null
+          }));
+        }
+
+        const subjects = subjectLinks
+          .filter(link => link.subject)
+          .map(link => ({
+            _id: link.subject._id,
+            name: link.subject.name,
+            code: link.subject.code,
+            group: link.subject.group,
+            autoAssigned: link.autoAssigned,
+            category: link.category,
+            term: link.term,
+            year: link.year
+          }));
+
+        const compulsorySubjects = subjects.filter(sub => sub.category === 'Compulsory');
+        const electiveSubjects = subjects.filter(sub => sub.category === 'Elective');
+
+        return {
+          _id: s._id,
+          admNo: s.admNo,
+          name: s.name,
+          grade: s.grade,
+          pathway: s.pathway?.name ?? '—',
+          track: s.track?.name ?? '—',
+          subjectCount: subjects.length,
+          compulsorySubjects,
+          electiveSubjects
+        };
+      })
+    );
 
     res.status(200).json({
       class: { name: cls.name, grade: cls.grade },
-      count: students.length,
-      students
+      count: formatted.length,
+      students: formatted
     });
-
   } catch (err) {
-    console.error('[GetStudentsWithSubjectsByClassName]', err);
+    console.error('[getStudentsWithSubjectsByClassName]', err);
     res.status(500).json({ error: 'Error fetching students by class' });
   }
 };
+
 
 // 📘 Get students by class (ID or name)
 const getStudentsByClass = async (req, res) => {
@@ -453,6 +542,32 @@ const updateStudentByAdmNo = async (req, res) => {
 
     if (!student) return res.status(404).json({ error: 'Student not found.' });
 
+    // 🔄 Sync selectedSubjects to StudentSubject if provided
+    if (updates.selectedSubjects && Array.isArray(updates.selectedSubjects)) {
+      const allSubjects = await Subject.find();
+      const subjectMap = Object.fromEntries(allSubjects.map(s => [s._id.toString(), s]));
+
+      const existingLinks = await StudentSubject.find({ student: student._id });
+      const existingSubjectIds = existingLinks.map(link => link.subject.toString());
+
+      const newSubjectIds = updates.selectedSubjects.filter(id => !existingSubjectIds.includes(id));
+
+      const newLinks = newSubjectIds.map(subjectId => {
+        const subject = subjectMap[subjectId];
+        const category = subject?.category || 'Elective'; // fallback if not defined
+        return {
+          student: student._id,
+          subject: subject._id,
+          autoAssigned: false,
+          category
+        };
+      });
+
+      if (newLinks.length) {
+        await StudentSubject.insertMany(newLinks);
+      }
+    }
+
     res.status(200).json({ message: 'Student updated.', student });
   } catch (err) {
     console.error('[updateStudentByAdmNo]', err);
@@ -460,21 +575,25 @@ const updateStudentByAdmNo = async (req, res) => {
   }
 };
 
-
 // 🗑️ Delete student by admission number
 const deleteStudentByAdmNo = async (req, res) => {
   try {
     const { admNo } = req.params;
 
-    const deleted = await Student.findOneAndDelete({ admNo });
-
-    if (!deleted) {
+    const student = await Student.findOne({ admNo: admNo.toUpperCase() });
+    if (!student) {
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    res.status(200).json({ message: 'Student deleted successfully' });
+    // 🧹 Delete linked StudentSubject entries
+    await StudentSubject.deleteMany({ student: student._id });
+
+    // 🗑️ Delete the student record
+    await Student.deleteOne({ _id: student._id });
+
+    res.status(200).json({ message: 'Student and linked subjects deleted successfully' });
   } catch (err) {
-    console.error('[DeleteStudentByAdmNo]', err);
+    console.error('[deleteStudentByAdmNo]', err);
     res.status(500).json({ error: 'Failed to delete student' });
   }
 };
@@ -487,18 +606,20 @@ const auditCBCCompliance = async (req, res) => {
 
     const allSubjects = await Subject.find();
     const subjectMap = Object.fromEntries(allSubjects.map(s => [s._id.toString(), s.name]));
+    const subjectCodeMap = Object.fromEntries(allSubjects.map(s => [s.code, s._id.toString()]));
 
     const report = await Promise.all(students.map(async student => {
-      const expected = student.pathway?.requiredSubjects || [];
+      const required = student.pathway?.requiredSubjects?.map(s => s.toString()) || [];
 
-      // Include compulsory subjects
+      // 🧠 CBC Compulsory logic
       const compulsoryCodes = ['ENG', 'CSL', 'KISW', 'KSL', 'MATH-CORE', 'MATH-ESS'];
-      const compulsory = allSubjects
-        .filter(s => compulsoryCodes.includes(s.code))
-        .map(s => s._id.toString());
+      const compulsory = compulsoryCodes
+        .map(code => subjectCodeMap[code])
+        .filter(Boolean);
 
-      const expectedSubjects = [...new Set([...expected.map(s => s.toString()), ...compulsory])];
+      const expectedSubjects = [...new Set([...required, ...compulsory])];
 
+      // 🔍 Fetch assigned subjects from StudentSubject
       const linkedSubjects = await StudentSubject.find({ student: student._id });
       const assigned = linkedSubjects.map(link => link.subject.toString());
 
@@ -508,7 +629,10 @@ const auditCBCCompliance = async (req, res) => {
       return {
         admNo: student.admNo,
         name: student.name,
-        pathway: student.pathway?.name,
+        pathway: student.pathway?.name ?? '—',
+        track: student.track?.name ?? '—',
+        assignedCount: assigned.length,
+        expectedCount: expectedSubjects.length,
         compliant: missing.length === 0,
         missingSubjects: missingNames
       };
@@ -529,23 +653,30 @@ const assignElectivesByPathway = async (req, res) => {
     const updates = await Promise.all(students.map(async student => {
       const electives = student.pathway?.defaultElectives || [];
 
-      // Filter out electives already assigned
+      // 🧠 Get current subject IDs from selectedSubjects
       const currentSubjectIds = student.selectedSubjects.map(id => id.toString());
+
+      // 🧠 Get already linked subjects from StudentSubject
+      const existingLinks = await StudentSubject.find({ student: student._id });
+      const existingSubjectIds = existingLinks.map(link => link.subject.toString());
+
+      // 🧹 Filter out electives already assigned
       const newElectives = electives.filter(
-        id => !currentSubjectIds.includes(id.toString())
+        id => !existingSubjectIds.includes(id.toString())
       );
 
-      // Update student.selectedSubjects
+      // 🔄 Update student.selectedSubjects
       student.selectedSubjects = [...new Set([...currentSubjectIds, ...newElectives])];
       await student.save();
 
-      // Create StudentSubject entries
+      // 🧾 Create StudentSubject entries with category tagging
       await Promise.all(
         newElectives.map(subjectId =>
           StudentSubject.create({
             student: student._id,
             subject: subjectId,
-            autoAssigned: false
+            autoAssigned: false,
+            category: 'Elective'
           })
         )
       );
@@ -579,13 +710,21 @@ const getStudentSubjectsByAdmNo = async (req, res) => {
     const subjectLinks = await StudentSubject.find({ student: student._id })
       .populate('subject', 'name code group');
 
-    const autoAssigned = subjectLinks
-      .filter(link => link.autoAssigned)
-      .map(link => link.subject);
+    const subjects = subjectLinks
+      .filter(link => link.subject)
+      .map(link => ({
+        _id: link.subject._id,
+        name: link.subject.name,
+        code: link.subject.code,
+        group: link.subject.group,
+        autoAssigned: link.autoAssigned,
+        category: link.category,
+        term: link.term,
+        year: link.year
+      }));
 
-    const optional = subjectLinks
-      .filter(link => !link.autoAssigned)
-      .map(link => link.subject);
+    const compulsorySubjects = subjects.filter(sub => sub.category === 'Compulsory');
+    const electiveSubjects = subjects.filter(sub => sub.category === 'Elective');
 
     res.status(200).json({
       student: {
@@ -595,12 +734,13 @@ const getStudentSubjectsByAdmNo = async (req, res) => {
         pathway: student.pathway?.name || null,
         track: student.track?.name || null
       },
-      autoAssignedSubjects: autoAssigned,
-      optionalSubjects: optional
+      subjectCount: subjects.length,
+      compulsorySubjects,
+      electiveSubjects
     });
 
   } catch (err) {
-    console.error('[GetStudentSubjectsByAdmNo]', err);
+    console.error('[getStudentSubjectsByAdmNo]', err);
     res.status(500).json({ error: 'Error fetching student subjects by admNo' });
   }
 };
