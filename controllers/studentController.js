@@ -240,7 +240,7 @@ const getStudentProfile = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-S
+
 
 // 📄 Get all students
 const getAllStudents = async (req, res) => {
