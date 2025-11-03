@@ -93,13 +93,16 @@ const verifySchoolCode = async (req, res) => {
       schoolId: school._id,
       name: school.name,
       logo: school.logo,
-      motto: school.motto
+      motto: school.motto,
+      email: school.email,
+      location: school.location
     });
   } catch (err) {
     console.error('[VerifySchoolCode]', err);
     res.status(500).json({ error: 'Error verifying school code' });
   }
 };
+
 
 // ✅ Login teacher/admin
 const loginTeacher = async (req, res) => {
