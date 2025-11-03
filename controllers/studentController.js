@@ -240,28 +240,31 @@ const getStudentProfile = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
-// 📋 Get all students
+// 📄 Get all students
 const getAllStudents = async (req, res) => {
   try {
     const students = await Student.find()
       .populate('pathway', 'name')
       .populate('track', 'name')
-      .populate('class', 'grade');
+      .populate('class', 'grade name'); // ✅ include class name like "11E"
 
     const formatted = await Promise.all(
       students.map(async s => {
-        const subjectLinks = await StudentSubject.find({ student: s._id }).populate('subject', 'name code group');
+        const subjectLinks = await StudentSubject.find({ student: s._id })
+          .populate('subject', 'name code group');
 
-        const subjects = subjectLinks.map(link => ({
-          _id: link.subject._id,
-          name: link.subject.name,
-          code: link.subject.code,
-          group: link.subject.group,
-          autoAssigned: link.autoAssigned,
-          term: link.term,
-          year: link.year
-        }));
+        // ✅ Skip broken links where subject is null
+        const subjects = subjectLinks
+          .filter(link => link.subject)
+          .map(link => ({
+            _id: link.subject._id,
+            name: link.subject.name,
+            code: link.subject.code,
+            group: link.subject.group,
+            autoAssigned: link.autoAssigned,
+            term: link.term,
+            year: link.year
+          }));
 
         const autoAssignedSubjects = subjects.filter(sub => sub.autoAssigned);
         const optionalSubjects = subjects.filter(sub => !sub.autoAssigned);
@@ -273,12 +276,10 @@ const getAllStudents = async (req, res) => {
           gender: s.gender,
           grade: s.grade,
           currentGrade: s.currentGrade ?? s.class?.grade ?? '—',
-          enrollmentYear: s.enrollmentYear ?? '—',
-          status: s.status ?? '—',
+          class: s.class?.name ?? '—',
           pathway: s.pathway?.name ?? '—',
           track: s.track?.name ?? '—',
-          class: s.class?.name ?? '—',
-          subjectCount: subjects.length,
+          subjectCount: subjects.length, // ✅ includes both compulsory + optional
           autoAssignedSubjects,
           optionalSubjects
         };
@@ -294,52 +295,32 @@ const getAllStudents = async (req, res) => {
     res.status(500).json({ error: 'Error fetching students' });
   }
 };
+
 // 📄 Get student subjects
 const getStudentSubjects = async (req, res) => {
   try {
     const { studentId } = req.params;
+    const student = await Student.findById(studentId).populate('selectedSubjects', 'name group compulsory');
 
-    const student = await Student.findById(studentId)
-      .populate('pathway', 'name')
-      .populate('track', 'name')
-      .populate('class', 'grade');
+    if (!student) 
+      return res.status(404).json({ message: 'Student not found' });
 
-    if (!student) return res.status(404).json({ message: 'Student not found' });
-
-    const subjectLinks = await StudentSubject.find({ student: student._id })
-      .populate('subject', 'name code group');
-
-    const subjects = subjectLinks.map(link => ({
-      _id: link.subject._id,
-      name: link.subject.name,
-      code: link.subject.code,
-      group: link.subject.group,
-      autoAssigned: link.autoAssigned,
-      term: link.term,
-      year: link.year
-    }));
-
-    const autoAssignedSubjects = subjects.filter(sub => sub.autoAssigned);
-    const optionalSubjects = subjects.filter(sub => !sub.autoAssigned);
-
-    res.status(200).json({
-      student: {
-        id: student._id,
-        name: student.name,
-        admNo: student.admNo,
-        grade: student.currentGrade ?? student.class?.grade ?? '—',
-        pathway: student.pathway?.name ?? '—',
-        track: student.track?.name ?? '—'
-      },
-      subjectCount: subjects.length,
-      autoAssignedSubjects,
-      optionalSubjects
+    res.status(200).json({ 
+      student: { 
+        id: student._id, 
+        name: student.name, 
+        admNo: student.admNo, 
+        grade: student.grade 
+      }, 
+      subjects: student.selectedSubjects 
     });
+
   } catch (err) {
     console.error('[GetStudentSubjects]', err);
     res.status(500).json({ error: 'Error fetching student subjects' });
   }
 };
+
 
 // 📄 Get all students with their subjects
 const getAllStudentsWithSubjects = async (req, res) => {
@@ -365,48 +346,21 @@ const getAllStudentsWithSubjects = async (req, res) => {
 const getStudentsWithSubjectsByClassName = async (req, res) => {
   try {
     const { className } = req.params;
-
     const cls = await Class.findOne({ name: className });
-    if (!cls) return res.status(404).json({ message: 'Class not found' });
+
+    if (!cls)
+      return res.status(404).json({ message: 'Class not found' });
 
     const students = await Student.find({ class: cls._id })
-      .populate('pathway', 'name')
-      .populate('track', 'name')
-      .populate('class', 'grade');
-
-    const enriched = await Promise.all(
-      students.map(async s => {
-        const subjectLinks = await StudentSubject.find({ student: s._id }).populate('subject', 'name code group');
-
-        const subjects = subjectLinks.map(link => ({
-          _id: link.subject._id,
-          name: link.subject.name,
-          code: link.subject.code,
-          group: link.subject.group,
-          autoAssigned: link.autoAssigned
-        }));
-
-        return {
-          _id: s._id,
-          admNo: s.admNo,
-          name: s.name,
-          grade: s.currentGrade ?? s.class?.grade ?? '—',
-          pathway: s.pathway?.name ?? '—',
-          track: s.track?.name ?? '—',
-          selectedSubjects: subjects,
-          subjectCount: subjects.length
-        };
-      })
-    );
+      .populate('selectedSubjects', 'name group compulsory')
+      .select('admNo name grade selectedSubjects');
 
     res.status(200).json({
-      class: {
-        name: cls.name,
-        grade: cls.grade
-      },
-      count: enriched.length,
-      students: enriched
+      class: { name: cls.name, grade: cls.grade },
+      count: students.length,
+      students
     });
+
   } catch (err) {
     console.error('[GetStudentsWithSubjectsByClassName]', err);
     res.status(500).json({ error: 'Error fetching students by class' });
@@ -445,8 +399,6 @@ const getStudentsByClass = async (req, res) => {
     res.status(500).json({ error: 'Error fetching class list.' });
   }
 };
-
-
 
 // 🔧 Update student by admission number
 const updateStudentByAdmNo = async (req, res) => {
@@ -598,16 +550,17 @@ const assignElectivesByPathway = async (req, res) => {
   }
 };
 
+
 // 📚 Get subjects by admission number
 const getStudentSubjectsByAdmNo = async (req, res) => {
   try {
     const { admNo } = req.params;
-
     const student = await Student.findOne({ admNo: admNo.toUpperCase() })
       .populate('pathway', 'name')
       .populate('track', 'name');
 
-    if (!student) return res.status(404).json({ message: 'Student not found' });
+    if (!student) 
+      return res.status(404).json({ message: 'Student not found' });
 
     const subjectLinks = await StudentSubject.find({ student: student._id })
       .populate('subject', 'name code group');
@@ -631,6 +584,7 @@ const getStudentSubjectsByAdmNo = async (req, res) => {
       autoAssignedSubjects: autoAssigned,
       optionalSubjects: optional
     });
+
   } catch (err) {
     console.error('[GetStudentSubjectsByAdmNo]', err);
     res.status(500).json({ error: 'Error fetching student subjects by admNo' });

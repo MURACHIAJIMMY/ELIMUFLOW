@@ -112,7 +112,7 @@ const selectSubjectsByAdmNo = async (req, res) => {
     res.status(500).json({ error: 'Error selecting subjects.' });
   }
 };
-
+// ✏️ Get selected subjects by admission number
 const getSelectedSubjectsByAdmNo = async (req, res) => {
   try {
     const { admNo } = req.params;
