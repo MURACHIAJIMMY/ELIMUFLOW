@@ -20,6 +20,21 @@ router.get('/:code', async (req, res) => {
     res.status(500).json({ error: 'Error fetching school info' });
   }
 });
+// ✅ Proxy to fetch and serve school logo
+router.get("/logo/:schoolCode", async (req, res) => {
+  try {
+    const school = await School.findOne({ code: req.params.schoolCode });
+    if (!school || !school.logo) return res.status(404).send("Not found");
+
+    const imageRes = await fetch(school.logo);
+    const buffer = await imageRes.buffer();
+    res.set("Content-Type", "image/jpeg");
+    res.send(buffer);
+  } catch (err) {
+    console.error("[LogoProxy]", err);
+    res.status(500).send("Error loading logo");
+  }
+});
 
 module.exports = router;
 
