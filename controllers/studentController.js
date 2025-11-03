@@ -341,7 +341,6 @@ const getStudentsWithSubjectsByClassName = async (req, res) => {
 
     res.status(200).json({
       class: {
-        id: cls._id,
         name: cls.name,
         grade: cls.grade
       },
@@ -563,7 +562,6 @@ const getStudentSubjectsByAdmNo = async (req, res) => {
 
     res.status(200).json({
       student: {
-        id: student._id,
         name: student.name,
         admNo: student.admNo,
         grade: student.currentGrade,
