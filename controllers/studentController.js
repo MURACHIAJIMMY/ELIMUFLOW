@@ -294,6 +294,52 @@ const getAllStudents = async (req, res) => {
     res.status(500).json({ error: 'Error fetching students' });
   }
 };
+// 📄 Get student subjects
+const getStudentSubjects = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+
+    const student = await Student.findById(studentId)
+      .populate('pathway', 'name')
+      .populate('track', 'name')
+      .populate('class', 'grade');
+
+    if (!student) return res.status(404).json({ message: 'Student not found' });
+
+    const subjectLinks = await StudentSubject.find({ student: student._id })
+      .populate('subject', 'name code group');
+
+    const subjects = subjectLinks.map(link => ({
+      _id: link.subject._id,
+      name: link.subject.name,
+      code: link.subject.code,
+      group: link.subject.group,
+      autoAssigned: link.autoAssigned,
+      term: link.term,
+      year: link.year
+    }));
+
+    const autoAssignedSubjects = subjects.filter(sub => sub.autoAssigned);
+    const optionalSubjects = subjects.filter(sub => !sub.autoAssigned);
+
+    res.status(200).json({
+      student: {
+        id: student._id,
+        name: student.name,
+        admNo: student.admNo,
+        grade: student.currentGrade ?? student.class?.grade ?? '—',
+        pathway: student.pathway?.name ?? '—',
+        track: student.track?.name ?? '—'
+      },
+      subjectCount: subjects.length,
+      autoAssignedSubjects,
+      optionalSubjects
+    });
+  } catch (err) {
+    console.error('[GetStudentSubjects]', err);
+    res.status(500).json({ error: 'Error fetching student subjects' });
+  }
+};
 
 // 📄 Get all students with their subjects
 const getAllStudentsWithSubjects = async (req, res) => {
