@@ -1,7 +1,9 @@
 const Student = require('../models/student');
 const Subject = require('../models/subject');
 const SubjectSelection = require('../models/subjectSelection');
-// select subjects 
+const StudentSubject = require('../models/studentSubject');
+
+// select subjects by admission number
 const selectSubjectsByAdmNo = async (req, res) => {
   try {
     const { admNo, selectedSubjects = [], languagePreference = 'KISW', mathChoice } = req.body;
@@ -76,6 +78,22 @@ const selectSubjectsByAdmNo = async (req, res) => {
       { upsert: true, new: true }
     );
 
+    // ✅ Sync to StudentSubject model
+    for (const subjectId of finalSubjects) {
+      const isAuto = compulsorySubjects.includes(subjectId);
+      await StudentSubject.findOneAndUpdate(
+        { student: student._id, subject: subjectId },
+        {
+          student: student._id,
+          subject: subjectId,
+          autoAssigned: isAuto,
+          term: 'Term 1', // You can make this dynamic if needed
+          year: new Date().getFullYear()
+        },
+        { upsert: true, new: true }
+      );
+    }
+
     // ✅ Return resolved subject details
     const resolvedSubjects = await Subject.find({ _id: { $in: finalSubjects } }).populate(['pathway', 'track']);
 
@@ -95,7 +113,6 @@ const selectSubjectsByAdmNo = async (req, res) => {
   }
 };
 
-// 📋 Get selected subjects by admission number
 const getSelectedSubjectsByAdmNo = async (req, res) => {
   try {
     const { admNo } = req.params;
@@ -138,7 +155,6 @@ const getSelectedSubjectsByAdmNo = async (req, res) => {
     const electiveCount = total - compulsoryCount;
     const isComplete = total === 7;
 
-    // ✅ CBC Math Compliance Check
     const hasCoreMath = subjects.some(s => s.code === 'MATH-CORE');
     const hasEssentialMath = subjects.some(s => s.code === 'MATH-ESS');
 
@@ -165,7 +181,7 @@ const getSelectedSubjectsByAdmNo = async (req, res) => {
   }
 };
 
-// ✏️ Update elective subjects by admission number
+// ✏️ Update selected elective subjects by admission number
 const updateSelectedSubjectsByAdmNo = async (req, res) => {
   try {
     const { admNo } = req.params;
@@ -180,7 +196,6 @@ const updateSelectedSubjectsByAdmNo = async (req, res) => {
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    // ✅ Validate electives
     const subjects = await Subject.find({ name: { $in: subjectNames } }).populate(['pathway', 'track']);
     if (subjects.length !== subjectNames.length) {
       return res.status(400).json({ error: 'One or more subject names are invalid' });
@@ -190,7 +205,6 @@ const updateSelectedSubjectsByAdmNo = async (req, res) => {
       return res.status(400).json({ error: 'Exactly 3 elective subjects must be selected' });
     }
 
-    // ✅ Enforce CBC: at least 2 from student's pathway
     const pathwayId = student.pathway?._id?.toString();
     const fromPathway = subjects.filter(sub => sub.pathway?._id?.toString() === pathwayId);
     if (fromPathway.length < 2) {
@@ -199,7 +213,6 @@ const updateSelectedSubjectsByAdmNo = async (req, res) => {
       });
     }
 
-    // ✅ Fetch compulsory subjects
     const [english, kiswahili, ksl, csl, coreMath, essentialMath] = await Promise.all([
       Subject.findOne({ code: 'ENG' }),
       Subject.findOne({ code: 'KISW' }),
@@ -209,7 +222,6 @@ const updateSelectedSubjectsByAdmNo = async (req, res) => {
       Subject.findOne({ code: 'MATH-ESS' })
     ]);
 
-    // ✅ Enforce CBC math rule
     let mathSubject;
     if (student.pathway?.name === 'STEM') {
       mathSubject = coreMath;
@@ -235,18 +247,31 @@ const updateSelectedSubjectsByAdmNo = async (req, res) => {
       return res.status(400).json({ error: 'Total subjects must be exactly 7' });
     }
 
-    // ✅ Upsert SubjectSelection
     await SubjectSelection.findOneAndUpdate(
       { student: student._id },
       { selectedSubjects: finalSubjects },
       { upsert: true, new: true }
     );
 
-    // ✅ Update student.selectedSubjects for consistency
     student.selectedSubjects = finalSubjects;
     await student.save();
 
-    // ✅ Return resolved subject details
+    // ✅ Sync to StudentSubject model
+    for (const subjectId of finalSubjects) {
+      const isAuto = compulsorySubjects.includes(subjectId);
+      await StudentSubject.findOneAndUpdate(
+        { student: student._id, subject: subjectId },
+        {
+          student: student._id,
+          subject: subjectId,
+          autoAssigned: isAuto,
+          term: 'Term 1',
+          year: new Date().getFullYear()
+        },
+        { upsert: true, new: true }
+      );
+    }
+
     const resolvedSubjects = await Subject.find({ _id: { $in: finalSubjects } }).populate(['pathway', 'track']);
 
     res.status(200).json({
@@ -264,8 +289,7 @@ const updateSelectedSubjectsByAdmNo = async (req, res) => {
     res.status(500).json({ error: 'Server error during subject update' });
   }
 };
-
-// 🗑️ Delete selected elective subjects by admission number
+// ✂️ Delete selected elective subjects by admission number
 const deleteSelectedSubjectsByAdmNo = async (req, res) => {
   try {
     const { admNo } = req.params;
@@ -310,22 +334,24 @@ const deleteSelectedSubjectsByAdmNo = async (req, res) => {
     res.status(500).json({ error: 'Error deleting selected subjects' });
   }
 };
-
-// 🔍 Validate all students' subject selections against CBC rules
+// ✅ Validate all students' subject selections for CBC compliance
 const validateAllSubjectSelections = async (req, res) => {
   try {
-    const students = await Student.find().populate('selectedSubjects pathway');
+    const students = await Student.find().populate('pathway');
 
     const compulsoryCodes = ['ENG', 'CSL', 'KISW', 'KSL', 'MATH-CORE', 'MATH-ESS'];
     const compulsorySubjects = await Subject.find({ code: { $in: compulsoryCodes } });
     const compulsoryMap = Object.fromEntries(compulsorySubjects.map(s => [s.code, s._id.toString()]));
     const compulsoryIds = Object.values(compulsoryMap);
 
-    const report = students.map(student => {
-      const selected = student.selectedSubjects.map(s => s._id.toString());
+    const report = [];
+
+    for (const student of students) {
+      const subjectLinks = await StudentSubject.find({ student: student._id }).populate('subject pathway');
+
+      const selected = subjectLinks.map(link => link.subject._id.toString());
       const total = selected.length;
 
-      // ✅ Check compulsory presence
       const hasEnglish = selected.includes(compulsoryMap['ENG']);
       const hasCSL = selected.includes(compulsoryMap['CSL']);
       const hasLanguage = selected.includes(compulsoryMap['KISW']) || selected.includes(compulsoryMap['KSL']);
@@ -333,28 +359,27 @@ const validateAllSubjectSelections = async (req, res) => {
 
       const compulsoryValid = hasEnglish && hasCSL && hasLanguage && hasMath;
 
-      // ✅ Identify electives
-      const electiveIds = selected.filter(id => !compulsoryIds.includes(id));
-      const electiveSubjects = student.selectedSubjects.filter(s => electiveIds.includes(s._id.toString()));
+      const electiveLinks = subjectLinks.filter(link => !link.autoAssigned);
+      const electiveSubjects = electiveLinks.map(link => link.subject);
       const fromPathway = electiveSubjects.filter(sub => sub.pathway?._id?.toString() === student.pathway?._id?.toString());
 
       const issues = [];
       if (!compulsoryValid) issues.push('Missing compulsory subjects');
-      if (electiveIds.length !== 3) issues.push('Must select exactly 3 electives');
+      if (electiveLinks.length !== 3) issues.push('Must select exactly 3 electives');
       if (fromPathway.length < 2) issues.push('At least 2 electives must be from chosen pathway');
       if (total !== 7) issues.push('Total subjects must be exactly 7');
 
-      return {
+      report.push({
         admNo: student.admNo,
         name: student.name,
         pathway: student.pathway?.name,
         totalSubjects: total,
-        electiveCount: electiveIds.length,
+        electiveCount: electiveLinks.length,
         fromPathwayCount: fromPathway.length,
         compliant: issues.length === 0,
         issues
-      };
-    });
+      });
+    }
 
     res.status(200).json({ message: 'CBC subject validation complete.', report });
   } catch (err) {
@@ -362,6 +387,7 @@ const validateAllSubjectSelections = async (req, res) => {
     res.status(500).json({ error: 'Error validating subject selections.' });
   }
 };
+
 
 module.exports = {
   selectSubjectsByAdmNo,
