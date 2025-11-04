@@ -194,18 +194,20 @@ const updatePathway = async (req, res) => {
   }
 };
 
-// 🗑️ Delete a pathway
+
+// 🗑️ Delete a pathway using name (not ID)
 const deletePathway = async (req, res) => {
   try {
-    const { pathwayId } = req.params;
-    const deleted = await Pathway.findByIdAndDelete(pathwayId);
+    const { pathwayId } = req.params; // pathwayId is actually the name
+    const deleted = await Pathway.findOneAndDelete({ name: pathwayId });
 
-    if (!deleted) return res.status(404).json({ error: 'Pathway not found.' });
-    res.status(200).json({ message: 'Pathway deleted.', pathway: deleted });
+    if (!deleted) return res.status(404).json({ error: "Pathway not found." });
+    res.status(200).json({ message: `Deleted pathway: ${pathwayId}`, pathway: deleted });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
 
 // 🔧 Update single or multiple pathways by name
 const updatePathwaysByName = async (req, res) => {
