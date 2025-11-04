@@ -67,8 +67,7 @@ const bulkCreateTracks = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
-// 📋 Get all tracks
+// 📋 Get all tracks with their subjects
 const getAllTracks = async (req, res) => {
   try {
     const tracks = await Track.find().populate('pathway');
@@ -88,6 +87,7 @@ const getAllTracks = async (req, res) => {
         trackId: track._id,
         trackName: track.name,
         trackCode: track.code,
+        description: track.description, // ✅ Now included
         pathwayName: track.pathway?.name || null,
         subjects: trackSubjects
       };
@@ -99,6 +99,7 @@ const getAllTracks = async (req, res) => {
     res.status(500).json({ error: 'Error fetching tracks.' });
   }
 };
+
 
 // 📄 Get a single track
 const getTrackById = async (req, res) => {
