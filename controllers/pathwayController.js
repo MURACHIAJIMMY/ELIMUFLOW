@@ -45,29 +45,33 @@ const bulkCreatePathways = async (req, res) => {
     const rawPathways = req.body;
 
     if (!Array.isArray(rawPathways) || rawPathways.length === 0) {
-      return res.status(400).json({ error: 'Provide an array of pathway objects.' });
+      return res.status(400).json({ error: "Provide an array of pathway objects." });
     }
 
     const resolved = [];
 
     for (const raw of rawPathways) {
+      const { name, description, trackCodes = [], requiredSubjects = [], defaultElectives = [] } = raw;
+
+      // Resolve trackCodes to trackIds only if provided
       let trackIds = [];
-      if (Array.isArray(raw.trackCodes) && raw.trackCodes.length > 0) {
-        const tracks = await Track.find({ code: { $in: raw.trackCodes.map(c => c.toUpperCase()) } });
+      if (trackCodes.length > 0) {
+        const tracks = await Track.find({ code: { $in: trackCodes.map(c => c.toUpperCase()) } });
         trackIds = tracks.map(t => t._id);
       }
 
       resolved.push({
-        name: raw.name,
-        description: raw.description,
+        name,
+        description,
         tracks: trackIds,
-        requiredSubjects: raw.requiredSubjects,
-        defaultElectives: raw.defaultElectives
+        requiredSubjects,
+        defaultElectives
       });
     }
 
     const created = await Pathway.insertMany(resolved);
 
+    // Link tracks to pathway
     for (const pathway of created) {
       if (Array.isArray(pathway.tracks) && pathway.tracks.length > 0) {
         await Track.updateMany(
@@ -77,7 +81,7 @@ const bulkCreatePathways = async (req, res) => {
       }
     }
 
-    res.status(201).json({ message: 'Pathways created.', pathways: created });
+    res.status(201).json({ message: "Pathways created.", pathways: created });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
