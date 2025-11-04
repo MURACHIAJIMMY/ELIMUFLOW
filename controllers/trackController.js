@@ -113,34 +113,40 @@ const getTrackById = async (req, res) => {
   }
 };
 
-// ✏️ Update a track
+// ✏️ Update a track by code
 const updateTrack = async (req, res) => {
   try {
-    const { trackId } = req.params;
+    const { trackId } = req.params; // trackId is actually the code
     const updates = req.body;
 
-    const updated = await Track.findByIdAndUpdate(trackId, updates, { new: true });
-    if (!updated) return res.status(404).json({ error: 'Track not found.' });
+    const updated = await Track.findOneAndUpdate(
+      { code: trackId.toUpperCase() },
+      updates,
+      { new: true }
+    );
 
-    res.status(200).json({ message: 'Track updated.', track: updated });
+    if (!updated) return res.status(404).json({ error: "Track not found." });
+
+    res.status(200).json({ message: `Track updated: ${trackId}`, track: updated });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
-// 🗑️ Delete a track
+
+// 🗑️ Delete a track by code
 const deleteTrack = async (req, res) => {
   try {
-    const { trackId } = req.params;
-    const deleted = await Track.findByIdAndDelete(trackId);
+    const { trackId } = req.params; // trackId is actually the code
+    const deleted = await Track.findOneAndDelete({ code: trackId.toUpperCase() });
 
-    if (!deleted) return res.status(404).json({ error: 'Track not found.' });
+    if (!deleted) return res.status(404).json({ error: "Track not found." });
 
     await Pathway.findByIdAndUpdate(deleted.pathway, {
-      $pull: { tracks: trackId }
+      $pull: { tracks: deleted._id }
     });
 
-    res.status(200).json({ message: 'Track deleted.', track: deleted });
+    res.status(200).json({ message: `Track deleted: ${trackId}`, track: deleted });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
