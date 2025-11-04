@@ -49,12 +49,4 @@ router.get(
   validateAllSubjectSelections
 );
 
-// Add to your Express router:
-router.get(
-  '/student/admno/:admNo/subject-options',
-  verifyToken,
-  checkRole(['teacher', 'admin']),
-  fetchElectiveOptionsByAdmNo // <-- create this controller
-);
-
 module.exports = router;
