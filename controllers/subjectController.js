@@ -186,12 +186,11 @@ const getSubjectsByPathwayTrack = async (req, res) => {
     res.status(500).json({ error: 'Failed to filter subjects.' });
   }
 };
-
 // 📄 Get all subjects
 const getAllSubjects = async (req, res) => {
   try {
     const subjects = await Subject.find()
-      .select('name code group')
+      .select('name code group lessonsPerWeek compulsory') // ✅ Include lessonsPerWeek and compulsory
       .populate({ path: 'pathway', select: 'name' })
       .populate({ path: 'track', select: 'name code' });
 
@@ -199,6 +198,8 @@ const getAllSubjects = async (req, res) => {
       LearningArea: sub.name,
       code: sub.code,
       group: sub.group,
+      compulsory: sub.compulsory ?? false,
+      lessonsPerWeek: sub.lessonsPerWeek ?? null,
       pathway: sub.pathway?.name || null,
       track: sub.track ? { name: sub.track.name, code: sub.track.code } : null
     }));
