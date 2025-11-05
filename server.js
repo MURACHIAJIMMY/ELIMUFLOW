@@ -15,8 +15,7 @@ const corsOptions = {
   credentials: true
 };
 
-app.use(cors(corsOptions));
-app.options('/*', cors(corsOptions)); // ✅ valid wildcard for Express 5
+app.use(cors(corsOptions)); // ✅ Handles everything
 
 // ✅ MongoDB connection
 const connectDB = require('./config/db');
