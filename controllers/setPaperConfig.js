@@ -146,15 +146,19 @@ const getPaperConfigs = async (req, res) => {
   }
 };
 
-// 🔧 Update paper config by subject name
 const updatePaperConfigByName = async (req, res) => {
   try {
-    const { subjectName } = req.params;
+    // 🔓 Decode and normalize subject name
+    const rawSubject = decodeURIComponent(req.params.subjectName).trim();
+    const subjectName = rawSubject.replace(/\s+/g, " "); // collapse multiple spaces
+
     const { grade, term, exam, year, papers } = req.body;
 
+    // 🔍 Match subject case-insensitively
     const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i') });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
 
+    // 🔧 Update config
     const updated = await PaperConfig.findOneAndUpdate(
       { subject: subject._id, grade, term, exam, year },
       { papers },
