@@ -195,79 +195,79 @@ const getSelectedSubjectsByAdmNo = async (req, res) => {
     res.status(500).json({ error: 'Error fetching selected subjects.' });
   }
 };
-
-// ✏️ Update elective subjects by admission number
+// ✍️ Update selected subjects by admission number
 const updateSelectedSubjectsByAdmNo = async (req, res) => {
   try {
     const { admNo } = req.params;
     const { subjectNames = [], languagePreference = 'KISW', mathChoice } = req.body;
 
-    if (!Array.isArray(subjectNames)) {
-      return res.status(400).json({ error: 'subjectNames must be an array' });
-    }
-
-    if (subjectNames.length !== 3) {
+    // Validate input
+    if (!Array.isArray(subjectNames) || subjectNames.length !== 3) {
       return res.status(400).json({ error: 'Exactly 3 elective subjects must be selected' });
     }
 
-    // 🔍 Resolve student and pathway
+    // Resolve student and pathway
     const student = await Student.findOne({ admNo: admNo.toUpperCase() }).populate('pathway track');
     if (!student) return res.status(404).json({ error: 'Student not found' });
 
     const pathwayId = student.pathway?._id?.toString();
     if (!pathwayId) return res.status(400).json({ error: 'Student has no pathway assigned' });
 
-    // 🧹 Delete existing electives
+    // Delete existing electives
     await StudentSubject.deleteMany({ student: student._id, category: 'Elective' });
 
-    // 📋 Resolve elective subjects
-    const electiveSubjects = await Subject.find({ name: { $in: subjectNames } }).populate(['pathway', 'track']);
-    if (electiveSubjects.length !== 3) {
+    // Resolve elective subjects
+    const electiveSubjects = await Subject.find({ name: { $in: subjectNames } });
+    if (electiveSubjects.length !== 3)
       return res.status(400).json({ error: 'One or more subject names are invalid' });
-    }
 
+    // Check at least 2 electives are from the student's pathway
     const fromPathway = electiveSubjects.filter(sub => sub.pathway?._id?.toString() === pathwayId);
-    if (fromPathway.length < 2) {
+    if (fromPathway.length < 2)
       return res.status(400).json({ error: 'At least 2 electives must be from the selected pathway' });
-    }
 
-    // ✅ Dynamically resolve compulsory subjects
+    // Resolve compulsory subjects dynamically
     const compulsoryCodes = [
       'CSL',
       'ENG',
       languagePreference === 'KSL' ? 'KSL' : 'KISW',
-      student.pathway?.name === 'STEM' ? 'MATH-CORE'
-        : mathChoice === 'core' ? 'MATH-CORE'
-        : 'MATH-ESS'
+      student.pathway?.name === 'STEM' || mathChoice === 'core' ? 'MATH-CORE' : 'MATH-ESS'
     ];
-
+    
     const compulsorySubjectsRaw = await Subject.find({ code: { $in: compulsoryCodes } });
     const mathSubject = compulsorySubjectsRaw.find(sub => sub.code === 'MATH-ESS');
 
+    // For STEM pathway with MATH-ESS, throw error
     if (student.pathway?.name === 'STEM' && mathSubject) {
       return res.status(400).json({ error: 'STEM students must take Core Mathematics' });
     }
 
     const compulsorySubjects = compulsorySubjectsRaw.map(sub => sub._id);
 
-    // 🧮 Final subject list
-    const finalSubjects = [...new Set([...compulsorySubjects, ...electiveSubjects.map(s => s._id)])];
-    if (finalSubjects.length !== 7) {
+    // Final subject list ensuring the total count is 7
+    const finalSubjectsSet = new Set([
+      ...compulsorySubjects,
+      ...electiveSubjects.map(s => s._id)
+    ]);
+    
+    if (finalSubjectsSet.size !== 7) {
       return res.status(400).json({ error: 'Total subjects must be exactly 7' });
     }
 
-    // 🔁 Sync to SubjectSelection
+    const finalSubjects = Array.from(finalSubjectsSet);
+
+    // Update SubjectSelection
     await SubjectSelection.findOneAndUpdate(
       { student: student._id },
       { selectedSubjects: finalSubjects },
       { upsert: true, new: true }
     );
 
-    // 🔁 Sync to Student model
+    // Update Student document
     student.selectedSubjects = finalSubjects;
     await student.save();
 
-    // 🔁 Sync to StudentSubject model
+    // Update StudentSubject collection
     for (const subjectId of finalSubjects) {
       const isAuto = compulsorySubjects.includes(subjectId);
       const category = isAuto ? 'Compulsory' : 'Elective';
@@ -286,7 +286,7 @@ const updateSelectedSubjectsByAdmNo = async (req, res) => {
       );
     }
 
-    // 📊 Return resolved subject details
+    // Fetch and respond with detailed subjects info
     const resolvedSubjects = await Subject.find({ _id: { $in: finalSubjects } }).populate(['pathway', 'track']);
 
     res.status(200).json({
