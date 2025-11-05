@@ -12,17 +12,22 @@ const selectSubjectsByAdmNo = async (req, res) => {
     const student = await Student.findOne({ admNo: admNo.toUpperCase() }).populate('pathway');
     if (!student) return res.status(404).json({ error: 'Student not found.' });
 
-    // 🧠 Check if selection already exists
-    const existingLinks = await StudentSubject.find({ student: student._id });
-    const alreadySelected = existingLinks.length === 7;
-
-    if (alreadySelected) {
-      // 🧹 Clean up old electives only — allow re-selection
-      await StudentSubject.deleteMany({ student: student._id, category: 'Elective' });
-    }
-
     const pathwayId = student.pathway?._id;
     if (!pathwayId) return res.status(400).json({ error: 'Student has no pathway assigned.' });
+
+    // 🧠 Check if selection already exists
+    const existingLinks = await StudentSubject.find({ student: student._id });
+
+    if (existingLinks.length > 0) {
+      // 🧹 Clean up old electives
+      await StudentSubject.deleteMany({ student: student._id, category: 'Elective' });
+
+      // 🧹 Clean up old language and math subjects
+      const oldCodes = ['102', '504', '121', '122']; // Kiswahili, KSL, Core, Ess
+      const oldChoiceSubjects = await Subject.find({ code: { $in: oldCodes } });
+      const oldChoiceIds = oldChoiceSubjects.map(sub => sub._id);
+      await StudentSubject.deleteMany({ student: student._id, subject: { $in: oldChoiceIds } });
+    }
 
     // 📋 Fetch valid electives from pathway
     const pathwayElectives = await Subject.find({ pathway: pathwayId }).select('name _id pathway');
@@ -197,17 +202,22 @@ const updateSelectedSubjectsByAdmNo = async (req, res) => {
     const { admNo } = req.params;
     const { subjectNames = [], languagePreference = 'KISW', mathChoice } = req.body;
 
-    if (!Array.isArray(subjectNames) || subjectNames.length !== 3) {
+    if (!Array.isArray(subjectNames)) {
+      return res.status(400).json({ error: 'subjectNames must be an array' });
+    }
+
+    if (subjectNames.length !== 3) {
       return res.status(400).json({ error: 'Exactly 3 elective subjects must be selected' });
     }
 
+    // 🔍 Resolve student and pathway
     const student = await Student.findOne({ admNo: admNo.toUpperCase() }).populate('pathway track');
     if (!student) return res.status(404).json({ error: 'Student not found' });
 
     const pathwayId = student.pathway?._id?.toString();
     if (!pathwayId) return res.status(400).json({ error: 'Student has no pathway assigned' });
 
-    // 🧹 Delete existing electives only
+    // 🧹 Delete existing electives
     await StudentSubject.deleteMany({ student: student._id, category: 'Elective' });
 
     // 📋 Resolve elective subjects
@@ -221,77 +231,27 @@ const updateSelectedSubjectsByAdmNo = async (req, res) => {
       return res.status(400).json({ error: 'At least 2 electives must be from the selected pathway' });
     }
 
-    // ✅ Dynamically resolve compulsory subjects by name
-    const compulsorySubjectsRaw = await Subject.find({
-      name: {
-        $in: [
-          'Community Service Learning',
-          'English',
-          languagePreference === 'KSL' ? 'Kenya Sign Language' : 'Kiswahili',
-          student.pathway?.name === 'STEM' || mathChoice === 'core'
-            ? 'CORE-Mathematics'
-            : 'ESS-Mathematics'
-        ]
-      }
-    });
+    // ✅ Dynamically resolve compulsory subjects
+    const compulsoryCodes = [
+      'CSL',
+      'ENG',
+      languagePreference === 'KSL' ? 'KSL' : 'KISW',
+      student.pathway?.name === 'STEM' ? 'MATH-CORE'
+        : mathChoice === 'core' ? 'MATH-CORE'
+        : 'MATH-ESS'
+    ];
 
-    const csl = compulsorySubjectsRaw.find(sub => sub.name === 'Community Service Learning');
-    const eng = compulsorySubjectsRaw.find(sub => sub.name === 'English');
-    const selectedLang = compulsorySubjectsRaw.find(sub =>
-      sub.name === (languagePreference === 'KSL' ? 'Kenya Sign Language' : 'Kiswahili')
-    );
-    const selectedMath = compulsorySubjectsRaw.find(sub =>
-      sub.name === (student.pathway?.name === 'STEM' || mathChoice === 'core'
-        ? 'CORE-Mathematics'
-        : 'ESS-Mathematics')
-    );
+    const compulsorySubjectsRaw = await Subject.find({ code: { $in: compulsoryCodes } });
+    const mathSubject = compulsorySubjectsRaw.find(sub => sub.code === 'MATH-ESS');
 
-    if (student.pathway?.name === 'STEM' && selectedMath?.name === 'ESS-Mathematics') {
+    if (student.pathway?.name === 'STEM' && mathSubject) {
       return res.status(400).json({ error: 'STEM students must take Core Mathematics' });
     }
 
-    // 🔍 Determine current compulsory subjects
-    const currentCompulsories = await StudentSubject.find({
-      student: student._id,
-      category: 'Compulsory'
-    });
+    const compulsorySubjects = compulsorySubjectsRaw.map(sub => sub._id);
 
-    const updatedCompulsories = [];
-
-    // ✅ Always include CSL and ENG
-    if (csl?._id) updatedCompulsories.push(csl._id);
-    if (eng?._id) updatedCompulsories.push(eng._id);
-
-    // 🔁 Language logic
-  const existingLang = currentCompulsories.find(sub =>
-  ['Kiswahili', 'Kenya Sign Language'].includes(sub.subjectName)
-);
-
-if (!existingLang || existingLang.subject.toString() !== selectedLang?._id?.toString()) {
-  await StudentSubject.deleteMany({
-    student: student._id,
-    subject: { $in: [kisw?._id, ksl?._id].filter(Boolean) }
-  });
-  if (selectedLang?._id) updatedCompulsories.push(selectedLang._id);
-} else {
-  updatedCompulsories.push(existingLang.subject);
-}
-// 🔁 Mathematics logic
-   const existingMath = currentCompulsories.find(sub =>
-  ['CORE-Mathematics', 'ESS-Mathematics'].includes(sub.subjectName)
-);
-
-if (!existingMath || existingMath.subject.toString() !== selectedMath?._id?.toString()) {
-  await StudentSubject.deleteMany({
-    student: student._id,
-    subject: { $in: [coreMath?._id, essMath?._id].filter(Boolean) }
-  });
-  if (selectedMath?._id) updatedCompulsories.push(selectedMath._id);
-} else {
-  updatedCompulsories.push(existingMath.subject);
-}
     // 🧮 Final subject list
-    const finalSubjects = [...new Set([...updatedCompulsories, ...electiveSubjects.map(s => s._id)])];
+    const finalSubjects = [...new Set([...compulsorySubjects, ...electiveSubjects.map(s => s._id)])];
     if (finalSubjects.length !== 7) {
       return res.status(400).json({ error: 'Total subjects must be exactly 7' });
     }
@@ -309,7 +269,7 @@ if (!existingMath || existingMath.subject.toString() !== selectedMath?._id?.toSt
 
     // 🔁 Sync to StudentSubject model
     for (const subjectId of finalSubjects) {
-      const isAuto = updatedCompulsories.includes(subjectId);
+      const isAuto = compulsorySubjects.includes(subjectId);
       const category = isAuto ? 'Compulsory' : 'Elective';
 
       await StudentSubject.findOneAndUpdate(
