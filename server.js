@@ -16,8 +16,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // ✅ Handle preflight
-
+app.options('/*', cors(corsOptions)); // ✅ valid wildcard for Express 5
 
 // ✅ MongoDB connection
 const connectDB = require('./config/db');
