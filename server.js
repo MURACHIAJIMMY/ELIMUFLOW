@@ -28,6 +28,8 @@ const classRoutes = require('./routes/classRoutes');
 const paperConfigRoutes = require('./routes/PaperConfigRoutes');
 const schoolRoutes = require('./routes/schoolRoutes');
 const promotionRoute = require('./routes/promotionRoute');
+const yearRoutes = require('./routes/yearRoutes');
+
 
 
 // ✅ Route mounting
@@ -42,6 +44,7 @@ app.use('/api/classes', classRoutes);
 app.use('/api', paperConfigRoutes);
 app.use('/api/schools', schoolRoutes);
 app.use('/api/admin', promotionRoute);
+app.use('/api', yearRoutes);
 // ✅ Server start
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}🚀🚀`));

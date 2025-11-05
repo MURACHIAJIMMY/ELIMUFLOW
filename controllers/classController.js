@@ -98,11 +98,22 @@ const deleteClassByName = async (req, res) => {
   }
 };
 
+// 📊 Get available grades for classes
+const getAvailableGrades = async (req, res) => {
+  try {
+    const grades = await Class.distinct('grade');
+    res.status(200).json(grades.sort()); // e.g. [10, 11, 12]
+  } catch (err) {
+    console.error('[getAvailableGrades]', err);
+    res.status(500).json({ error: 'Failed to fetch grades.' });
+  }
+};
 
 module.exports = {
   bulkCreateClasses,
   getClassByName,
   getClasses,
   updateClassByName,
-  deleteClassByName
+  deleteClassByName,
+  getAvailableGrades 
 };

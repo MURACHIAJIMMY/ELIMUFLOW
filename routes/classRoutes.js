@@ -41,6 +41,10 @@ router.delete(
   checkRole(['admin']),
   classController.deleteClassByName
 );
-
+router.get(
+  '/grades', 
+  verifyToken, 
+  checkRole(['admin', 'teacher']),
+   classController.getAvailableGrades);
 
 module.exports = router;
