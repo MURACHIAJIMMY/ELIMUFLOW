@@ -118,9 +118,6 @@ const selectSubjectsByAdmNo = async (req, res) => {
   }
 };
 
-module.exports = { selectSubjectsByAdmNo };
-
-
 // ✏️ Get selected subjects by admission number
 const getSelectedSubjectsByAdmNo = async (req, res) => {
   try {
@@ -405,12 +402,48 @@ const validateAllSubjectSelections = async (req, res) => {
     res.status(500).json({ error: 'Error validating subject selections.' });
   }
 };
+// 📋 Controller: Get available electives for a student's pathway
 
+const getStudentElectivesForPathway = async (req, res) => {
+  try {
+    const { admNo } = req.params;
+
+    // Find student and populate pathway
+    const student = await Student.findOne({ admNo: admNo.toUpperCase() }).populate('pathway');
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found.' });
+    }
+    if (!student.pathway?._id) {
+      return res.status(400).json({ error: 'Student has no pathway assigned.' });
+    }
+
+    // Find electives linked to the student's pathway (make sure your Subject schema links correctly)
+    const electives = await Subject.find({
+      pathway: student.pathway._id,
+      isElective: true // Make sure this field exists/used in your schema
+    }).select('name code group lessonsPerWeek');
+
+    // Optionally, also return student info (useful for frontend)
+    res.status(200).json({
+      student: {
+        admNo: student.admNo,
+        name: student.name,
+        pathway: student.pathway.name
+      },
+      electives
+    });
+
+  } catch (err) {
+    console.error('[getStudentElectivesForPathway]', err);
+    res.status(500).json({ error: 'Error fetching elective options.' });
+  }
+};
 
 module.exports = {
   selectSubjectsByAdmNo,
   getSelectedSubjectsByAdmNo,
   updateSelectedSubjectsByAdmNo,
   deleteSelectedSubjectsByAdmNo,
-  validateAllSubjectSelections
+  validateAllSubjectSelections,
+  getStudentElectivesForPathway
 };

@@ -6,14 +6,15 @@ const {
   getSelectedSubjectsByAdmNo,
   updateSelectedSubjectsByAdmNo,
   deleteSelectedSubjectsByAdmNo,
-  validateAllSubjectSelections
+  validateAllSubjectSelections,
+  getStudentElectivesForPathway
 } = require('../controllers/subjectSelectionController');
 
 // 📝 Initial subject selection by admission number
 router.post(
   '/student/select',
   verifyToken,
-  checkRole(['admin']),
+  checkRole(['admin', 'teacher']),
   selectSubjectsByAdmNo
 );
 
@@ -47,6 +48,13 @@ router.get(
   verifyToken,
   checkRole(['admin']),
   validateAllSubjectSelections
+);
+// 🎯 Get student electives for a specific pathway by admission number
+router.get(
+  '/student/admno/:admNo/electives',
+  verifyToken,
+  checkRole(['teacher', 'admin']),
+  getStudentElectivesForPathway
 );
 
 module.exports = router;
