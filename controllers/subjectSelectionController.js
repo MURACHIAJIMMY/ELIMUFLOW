@@ -34,12 +34,12 @@ const selectSubjectsByAdmNo = async (req, res) => {
 
     // ✅ Fetch compulsory subjects
     const [english, csl, kiswahili, ksl, coreMath, essentialMath] = await Promise.all([
-      Subject.findOne({ code: 'ENG' }),
+      Subject.findOne({ code: '101' }),
       Subject.findOne({ code: 'CSL' }),
-      Subject.findOne({ code: 'KISW' }),
-      Subject.findOne({ code: 'KSL' }),
-      Subject.findOne({ code: 'MATH-CORE' }),
-      Subject.findOne({ code: 'MATH-ESS' })
+      Subject.findOne({ code: '102' }),
+      Subject.findOne({ code: '504' }),
+      Subject.findOne({ code: '121' }),
+      Subject.findOne({ code: '122' })
     ]);
 
     let mathSubject;
