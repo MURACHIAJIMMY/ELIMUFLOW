@@ -124,7 +124,6 @@ const getPaperConfigByName = async (req, res) => {
   }
 };
 
-
 // 🔍 Get all paper configs
 const getPaperConfigs = async (req, res) => {
   try {
@@ -145,7 +144,7 @@ const getPaperConfigs = async (req, res) => {
     res.status(500).json({ error: 'Error fetching paper configs.' });
   }
 };
-
+// ✏️ Update paper config by subject name
 const updatePaperConfigByName = async (req, res) => {
   try {
     // 🔓 Decode and normalize subject name
@@ -183,11 +182,37 @@ const updatePaperConfigByName = async (req, res) => {
     res.status(500).json({ error: 'Error updating paper config.' });
   }
 };
+// 🗑️ Delete paper config by subject name
+const deletePaperConfigByName = async (req, res) => {
+  try {
+    const rawSubject = decodeURIComponent(req.params.subjectName).trim();
+    const subject = await Subject.findOne({ name: new RegExp(`^${rawSubject}$`, 'i') });
+    if (!subject) return res.status(404).json({ error: 'Subject not found.' });
+
+    const { grade, term, exam, year } = req.query;
+
+    const deleted = await PaperConfig.findOneAndDelete({
+      subject: subject._id,
+      grade,
+      term,
+      exam,
+      year
+    });
+
+    if (!deleted) return res.status(404).json({ error: 'Config not found to delete.' });
+
+    res.status(200).json({ message: 'Paper config deleted.' });
+  } catch (err) {
+    console.error('[deletePaperConfigByName]', err);
+    res.status(500).json({ error: 'Error deleting paper config.' });
+  }
+};
 
 module.exports = {
   setPaperConfig,
   setPaperConfigByName,
   getPaperConfigByName,
   getPaperConfigs,
-  updatePaperConfigByName
+  updatePaperConfigByName,
+  deletePaperConfigByName
 };

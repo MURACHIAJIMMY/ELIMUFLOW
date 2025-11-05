@@ -7,7 +7,8 @@ const {
   setPaperConfigByName,
   getPaperConfigByName,
   getPaperConfigs,
-  updatePaperConfigByName
+  updatePaperConfigByName,
+  deletePaperConfigByName
 } = require('../controllers/setPaperConfig');
 
 // 🔐 Admin sets paper configuration
@@ -46,6 +47,13 @@ router.put(
   verifyToken,
   checkRole(['admin']),
   updatePaperConfigByName
+);
+// 🔐 Admin deletes paper config by subject + grade + term + exam + year
+router.delete(
+  '/paper-config/:subjectName',
+  verifyToken,
+  checkRole(['admin']),
+  deletePaperConfigByName
 );
 
 
