@@ -263,33 +263,33 @@ const updateSelectedSubjectsByAdmNo = async (req, res) => {
     if (eng?._id) updatedCompulsories.push(eng._id);
 
     // 🔁 Language logic
-    const existingLang = currentCompulsories.find(sub =>
-      [selectedLang?._id?.toString()].includes(sub.subject.toString())
-    );
-    if (!existingLang || existingLang.subject.toString() !== selectedLang?._id?.toString()) {
-      await StudentSubject.deleteMany({
-        student: student._id,
-        subject: { $in: ['Kiswahili', 'Kenya Sign Language'] }
-      });
-      if (selectedLang?._id) updatedCompulsories.push(selectedLang._id);
-    } else {
-      updatedCompulsories.push(existingLang.subject);
-    }
+  const existingLang = currentCompulsories.find(sub =>
+  ['Kiswahili', 'Kenya Sign Language'].includes(sub.subjectName)
+);
 
-    // 🔁 Math logic
-    const existingMath = currentCompulsories.find(sub =>
-      [selectedMath?._id?.toString()].includes(sub.subject.toString())
-    );
-    if (!existingMath || existingMath.subject.toString() !== selectedMath?._id?.toString()) {
-      await StudentSubject.deleteMany({
-        student: student._id,
-        subject: { $in: ['CORE-Mathematics', 'ESS-Mathematics'] }
-      });
-      if (selectedMath?._id) updatedCompulsories.push(selectedMath._id);
-    } else {
-      updatedCompulsories.push(existingMath.subject);
-    }
+if (!existingLang || existingLang.subject.toString() !== selectedLang?._id?.toString()) {
+  await StudentSubject.deleteMany({
+    student: student._id,
+    subject: { $in: [kisw?._id, ksl?._id].filter(Boolean) }
+  });
+  if (selectedLang?._id) updatedCompulsories.push(selectedLang._id);
+} else {
+  updatedCompulsories.push(existingLang.subject);
+}
+// 🔁 Mathematics logic
+   const existingMath = currentCompulsories.find(sub =>
+  ['CORE-Mathematics', 'ESS-Mathematics'].includes(sub.subjectName)
+);
 
+if (!existingMath || existingMath.subject.toString() !== selectedMath?._id?.toString()) {
+  await StudentSubject.deleteMany({
+    student: student._id,
+    subject: { $in: [coreMath?._id, essMath?._id].filter(Boolean) }
+  });
+  if (selectedMath?._id) updatedCompulsories.push(selectedMath._id);
+} else {
+  updatedCompulsories.push(existingMath.subject);
+}
     // 🧮 Final subject list
     const finalSubjects = [...new Set([...updatedCompulsories, ...electiveSubjects.map(s => s._id)])];
     if (finalSubjects.length !== 7) {
