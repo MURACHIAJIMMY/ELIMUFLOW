@@ -403,7 +403,6 @@ const validateAllSubjectSelections = async (req, res) => {
   }
 };
 // 📋 Controller: Get available electives for a student's pathway
-
 const getStudentElectivesForPathway = async (req, res) => {
   try {
     const { admNo } = req.params;
@@ -417,10 +416,10 @@ const getStudentElectivesForPathway = async (req, res) => {
       return res.status(400).json({ error: 'Student has no pathway assigned.' });
     }
 
-    // Find electives linked to the student's pathway (make sure your Subject schema links correctly)
+    // Fetch subjects for student's pathway that are NOT compulsory (i.e. electives)
     const electives = await Subject.find({
       pathway: student.pathway._id,
-      isElective: true // Make sure this field exists/used in your schema
+      compulsory: false // Only non-compulsory subjects for selection
     }).select('name code group lessonsPerWeek');
 
     // Optionally, also return student info (useful for frontend)
@@ -438,7 +437,6 @@ const getStudentElectivesForPathway = async (req, res) => {
     res.status(500).json({ error: 'Error fetching elective options.' });
   }
 };
-
 module.exports = {
   selectSubjectsByAdmNo,
   getSelectedSubjectsByAdmNo,
