@@ -10,6 +10,19 @@ router.post(
   checkRole(['admin']),
   trackController.createTrack
 );
+// 📤 Get tracks, optionally filtered by pathwayId
+router.get("/", async (req, res) => {
+  try {
+    const { pathwayId } = req.query;
+    const query = pathwayId ? { pathway: pathwayId } : {};
+    const tracks = await Track.find(query);
+    res.json(tracks);
+  } catch (err) {
+    console.error("[GET /tracks]", err);
+    res.status(500).json({ error: "Failed to fetch tracks" });
+  }
+});
+
 // 📦 Bulk create tracks
 router.post(
   '/bulk-create',
