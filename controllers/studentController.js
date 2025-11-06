@@ -109,7 +109,9 @@ const bulkRegisterStudents = async (req, res) => {
   try {
     const students = req.body;
     if (!Array.isArray(students) || students.length === 0) {
-      return res.status(400).json({ error: 'Provide an array of student objects.' });
+      return res
+        .status(400)
+        .json({ error: "Provide an array of student objects." });
     }
 
     // 📚 Fetch all subjects once
@@ -121,23 +123,25 @@ const bulkRegisterStudents = async (req, res) => {
       return acc;
     }, {});
 
-    const english = subjectMap["ENG"];
-    const csl = subjectMap["CSL"];
-    const kiswahili = subjectMap["KISW"];
-    const ksl = subjectMap["KSL"];
-    const coreMath = subjectMap["MATH-CORE"];
-    const essentialMath = subjectMap["MATH-ESS"];
+    const english = subjectMap["101"]; // English
+    const csl = subjectMap["CSL"]; // Community Service Learning
+    const kiswahili = subjectMap["102"]; // Kiswahili
+    const ksl = subjectMap["504"]; // Kenyan Sign Language
+    const coreMath = subjectMap["121"]; // Core Math
+    const essentialMath = subjectMap["122"]; // Essential Math
 
     // 📦 Fetch pathway, track, class
     const [pathwayDocs, trackDocs, classDocs] = await Promise.all([
       Pathway.find(),
       Track.find(),
-      Class.find()
+      Class.find(),
     ]);
 
-    const pathwayMap = Object.fromEntries(pathwayDocs.map(p => [p.name, p._id]));
-    const trackMap = Object.fromEntries(trackDocs.map(t => [t.name, t._id]));
-    const classMap = Object.fromEntries(classDocs.map(c => [c.name, c._id]));
+    const pathwayMap = Object.fromEntries(
+      pathwayDocs.map((p) => [p.name, p._id])
+    );
+    const trackMap = Object.fromEntries(trackDocs.map((t) => [t.name, t._id]));
+    const classMap = Object.fromEntries(classDocs.map((c) => [c.name, c._id]));
 
     // 🧠 Group subjects by pathway
     const subjectsByPathway = allSubjects.reduce((acc, subj) => {
@@ -149,7 +153,7 @@ const bulkRegisterStudents = async (req, res) => {
 
     // 🏗️ Prepare student payloads
     const preparedStudents = await Promise.all(
-      students.map(async student => {
+      students.map(async (student) => {
         const {
           admNo,
           name,
@@ -160,8 +164,8 @@ const bulkRegisterStudents = async (req, res) => {
           pathwayName,
           trackName,
           selectedSubjects = [],
-          languagePreference = 'KISW',
-          mathChoice
+          languagePreference = "KISW",
+          mathChoice,
         } = student;
 
         const exists = await Student.findOne({ admNo: admNo.toUpperCase() });
@@ -177,22 +181,30 @@ const bulkRegisterStudents = async (req, res) => {
         }
 
         const mathSubject =
-          mathChoice === 'core' ? coreMath :
-          mathChoice === 'essential' ? essentialMath :
-          pathwayName === 'STEM' ? coreMath : essentialMath;
+          mathChoice === "core"
+            ? coreMath
+            : mathChoice === "essential"
+            ? essentialMath
+            : pathwayName === "STEM"
+            ? coreMath
+            : essentialMath;
 
         const compulsorySubjects = [
           english?._id,
           csl?._id,
-          languagePreference === 'KSL' ? ksl?._id : kiswahili?._id,
-          mathSubject?._id
+          languagePreference === "KSL" ? ksl?._id : kiswahili?._id,
+          mathSubject?._id,
         ].filter(Boolean);
 
-        const validOptionalSubjects = selectedSubjects.filter(subjectId =>
-          subjectsByPathway[pathwayId?.toString()]?.includes(subjectId.toString())
+        const validOptionalSubjects = selectedSubjects.filter((subjectId) =>
+          subjectsByPathway[pathwayId?.toString()]?.includes(
+            subjectId.toString()
+          )
         );
 
-        const finalSubjects = [...new Set([...compulsorySubjects, ...validOptionalSubjects])];
+        const finalSubjects = [
+          ...new Set([...compulsorySubjects, ...validOptionalSubjects]),
+        ];
 
         return {
           admNo: admNo.toUpperCase(),
@@ -204,7 +216,7 @@ const bulkRegisterStudents = async (req, res) => {
           pathway: pathwayId,
           track: trackId || undefined,
           selectedSubjects: finalSubjects,
-          compulsorySubjects
+          compulsorySubjects,
         };
       })
     );
@@ -212,7 +224,7 @@ const bulkRegisterStudents = async (req, res) => {
     // 🚀 Create students
     const filtered = preparedStudents.filter(Boolean);
     const created = await Student.insertMany(
-      filtered.map(s => {
+      filtered.map((s) => {
         const { compulsorySubjects, ...studentData } = s;
         return studentData;
       })
@@ -222,22 +234,24 @@ const bulkRegisterStudents = async (req, res) => {
     await Promise.all(
       created.flatMap((student, i) => {
         const { compulsorySubjects, selectedSubjects } = filtered[i];
-        return selectedSubjects.map(subjectId => {
+        return selectedSubjects.map((subjectId) => {
           const isAuto = compulsorySubjects.includes(subjectId);
-          const category = isAuto ? 'Compulsory' : 'Elective';
+          const category = isAuto ? "Compulsory" : "Elective";
           return StudentSubject.create({
             student: student._id,
             subject: subjectId,
             autoAssigned: isAuto,
-            category
+            category,
           });
         });
       })
     );
 
-    res.status(201).json({ message: 'Students registered.', students: created });
+    res
+      .status(201)
+      .json({ message: "Students registered.", students: created });
   } catch (err) {
-    console.error('[bulkRegisterStudents]', err);
+    console.error("[bulkRegisterStudents]", err);
     res.status(500).json({ error: err.message });
   }
 };
