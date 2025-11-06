@@ -11,6 +11,7 @@ const registerStudent = async (req, res) => {
     const {
       admNo,
       name,
+      nemisNo,
       gender,
       currentGrade,
       className,
@@ -32,15 +33,20 @@ const registerStudent = async (req, res) => {
       return res.status(400).json({ error: 'Invalid pathway or class name.' });
     }
 
-    const [english, csl, kiswahili, ksl, coreMath, essentialMath, allSubjects] = await Promise.all([
-      Subject.findOne({ code: 'ENG' }),
-      Subject.findOne({ code: 'CSL' }),
-      Subject.findOne({ code: 'KISW' }),
-      Subject.findOne({ code: 'KSL' }),
-      Subject.findOne({ code: 'MATH-CORE' }),
-      Subject.findOne({ code: 'MATH-ESS' }),
-      Subject.find()
-    ]);
+    const allSubjects = await Subject.find();
+
+const subjectMap = allSubjects.reduce((acc, subj) => {
+  acc[subj.code] = subj;
+  return acc;
+}, {});
+
+const english = subjectMap["101"];
+const csl = subjectMap["CSL"];
+const kiswahili = subjectMap["102"];
+const ksl = subjectMap["504"];
+const coreMath = subjectMap["121"];
+const essentialMath = subjectMap["122"];
+
 
     const mathSubject =
       mathChoice === 'core' ? coreMath :
@@ -70,6 +76,7 @@ const registerStudent = async (req, res) => {
     const student = await Student.create({
       admNo: admNo.toUpperCase(),
       name,
+      nemisNo: nemisNo?.trim() || undefined,
       gender,
       currentGrade,
       class: classDoc._id,
@@ -97,8 +104,7 @@ const registerStudent = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
-// 📦 Bulk register students
+// 📝 Bulk register students
 const bulkRegisterStudents = async (req, res) => {
   try {
     const students = req.body;
@@ -106,26 +112,34 @@ const bulkRegisterStudents = async (req, res) => {
       return res.status(400).json({ error: 'Provide an array of student objects.' });
     }
 
-    const [english, csl, kiswahili, ksl, coreMath, essentialMath] = await Promise.all([
-      Subject.findOne({ code: 'ENG' }),
-      Subject.findOne({ code: 'CSL' }),
-      Subject.findOne({ code: 'KISW' }),
-      Subject.findOne({ code: 'KSL' }),
-      Subject.findOne({ code: 'MATH-CORE' }),
-      Subject.findOne({ code: 'MATH-ESS' })
-    ]);
+    // 📚 Fetch all subjects once
+    const allSubjects = await Subject.find();
 
-    const [pathwayDocs, trackDocs, classDocs, allSubjects] = await Promise.all([
+    // 🔍 Create subject lookup map
+    const subjectMap = allSubjects.reduce((acc, subj) => {
+      acc[subj.code] = subj;
+      return acc;
+    }, {});
+
+    const english = subjectMap["ENG"];
+    const csl = subjectMap["CSL"];
+    const kiswahili = subjectMap["KISW"];
+    const ksl = subjectMap["KSL"];
+    const coreMath = subjectMap["MATH-CORE"];
+    const essentialMath = subjectMap["MATH-ESS"];
+
+    // 📦 Fetch pathway, track, class
+    const [pathwayDocs, trackDocs, classDocs] = await Promise.all([
       Pathway.find(),
       Track.find(),
-      Class.find(),
-      Subject.find()
+      Class.find()
     ]);
 
     const pathwayMap = Object.fromEntries(pathwayDocs.map(p => [p.name, p._id]));
     const trackMap = Object.fromEntries(trackDocs.map(t => [t.name, t._id]));
     const classMap = Object.fromEntries(classDocs.map(c => [c.name, c._id]));
 
+    // 🧠 Group subjects by pathway
     const subjectsByPathway = allSubjects.reduce((acc, subj) => {
       const key = subj.pathway?.toString();
       if (!acc[key]) acc[key] = [];
@@ -133,11 +147,13 @@ const bulkRegisterStudents = async (req, res) => {
       return acc;
     }, {});
 
+    // 🏗️ Prepare student payloads
     const preparedStudents = await Promise.all(
       students.map(async student => {
         const {
           admNo,
           name,
+          nemisNo,
           gender,
           currentGrade,
           className,
@@ -181,6 +197,7 @@ const bulkRegisterStudents = async (req, res) => {
         return {
           admNo: admNo.toUpperCase(),
           name,
+          nemisNo: nemisNo?.trim() || undefined,
           gender,
           currentGrade,
           class: classId,
@@ -192,6 +209,7 @@ const bulkRegisterStudents = async (req, res) => {
       })
     );
 
+    // 🚀 Create students
     const filtered = preparedStudents.filter(Boolean);
     const created = await Student.insertMany(
       filtered.map(s => {
@@ -200,6 +218,7 @@ const bulkRegisterStudents = async (req, res) => {
       })
     );
 
+    // 🔗 Create StudentSubject links
     await Promise.all(
       created.flatMap((student, i) => {
         const { compulsorySubjects, selectedSubjects } = filtered[i];
