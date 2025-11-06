@@ -637,57 +637,6 @@ const auditCBCCompliance = async (req, res) => {
   }
 };
 
-// 🧠 Assign electives based on pathway
-const assignElectivesByPathway = async (req, res) => {
-  try {
-    const students = await Student.find().populate('pathway');
-
-    const updates = await Promise.all(students.map(async student => {
-      const electives = student.pathway?.defaultElectives || [];
-
-      // 🧠 Get current subject IDs from selectedSubjects
-      const currentSubjectIds = student.selectedSubjects.map(id => id.toString());
-
-      // 🧠 Get already linked subjects from StudentSubject
-      const existingLinks = await StudentSubject.find({ student: student._id });
-      const existingSubjectIds = existingLinks.map(link => link.subject.toString());
-
-      // 🧹 Filter out electives already assigned
-      const newElectives = electives.filter(
-        id => !existingSubjectIds.includes(id.toString())
-      );
-
-      // 🔄 Update student.selectedSubjects
-      student.selectedSubjects = [...new Set([...currentSubjectIds, ...newElectives])];
-      await student.save();
-
-      // 🧾 Create StudentSubject entries with category tagging
-      await Promise.all(
-        newElectives.map(subjectId =>
-          StudentSubject.create({
-            student: student._id,
-            subject: subjectId,
-            autoAssigned: false,
-            category: 'Elective'
-          })
-        )
-      );
-
-      return {
-        admNo: student.admNo,
-        newlyAssigned: newElectives.length,
-        totalElectives: electives.length
-      };
-    }));
-
-    res.status(200).json({ message: 'Electives assigned by pathway.', updates });
-  } catch (err) {
-    console.error('[assignElectivesByPathway]', err);
-    res.status(500).json({ error: err.message });
-  }
-};
-
-
 // 📚 Get subjects by admission number
 const getStudentSubjectsByAdmNo = async (req, res) => {
   try {
@@ -742,7 +691,6 @@ module.exports = {
   registerStudent,
   bulkRegisterStudents,
   auditCBCCompliance,
-  assignElectivesByPathway,
   getStudentsByClass,
   getStudentProfile,
   getAllStudents,

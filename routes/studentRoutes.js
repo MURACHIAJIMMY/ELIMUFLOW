@@ -9,7 +9,6 @@ const {
   registerStudent,
   bulkRegisterStudents,
   auditCBCCompliance,
-  assignElectivesByPathway,
   getStudentsByClass,
   getStudentProfile,
   getAllStudents,
@@ -44,14 +43,6 @@ router.get(
   verifyToken,
   checkRole(["admin"]),
   auditCBCCompliance
-);
-
-// 🧠 Assign electives based on pathway
-router.post(
-  "/assign/pathway-electives",
-  verifyToken,
-  checkRole(["admin"]),
-  assignElectivesByPathway
 );
 
 // 📚 Get subjects by admission number
