@@ -594,28 +594,37 @@ const deleteStudentByAdmNo = async (req, res) => {
 // 📊 Audit CBC pathway compliance
 const auditCBCCompliance = async (req, res) => {
   try {
+    // 🔍 Fetch all students with pathway and track
     const students = await Student.find().populate('pathway track');
 
+    // 📚 Fetch all subjects and build maps
     const allSubjects = await Subject.find();
     const subjectMap = Object.fromEntries(allSubjects.map(s => [s._id.toString(), s.name]));
-    const subjectCodeMap = Object.fromEntries(allSubjects.map(s => [s.code, s._id.toString()]));
+    const compulsoryIds = allSubjects
+      .filter(s => s.isCompulsory) // ✅ dynamic compulsory detection
+      .map(s => s._id.toString());
 
     const report = await Promise.all(students.map(async student => {
       const required = student.pathway?.requiredSubjects?.map(s => s.toString()) || [];
 
-      // 🧠 CBC Compulsory logic
-      const compulsoryCodes = ['ENG', 'CSL', 'KISW', 'KSL', 'MATH-CORE', 'MATH-ESS'];
-      const compulsory = compulsoryCodes
-        .map(code => subjectCodeMap[code])
-        .filter(Boolean);
+      // ✅ Expected subjects: pathway + compulsory
+      const expectedSubjects = [...new Set([...required, ...compulsoryIds])];
 
-      const expectedSubjects = [...new Set([...required, ...compulsory])];
-
-      // 🔍 Fetch assigned subjects from StudentSubject
+      // 🔍 Fetch assigned subjects
       const linkedSubjects = await StudentSubject.find({ student: student._id });
       const assigned = linkedSubjects.map(link => link.subject.toString());
 
-      const missing = expectedSubjects.filter(sub => !assigned.includes(sub));
+      // 🧠 CBC compliance logic
+      const assignedCompulsory = assigned.filter(id => compulsoryIds.includes(id));
+      const assignedElectives = assigned.filter(id => !compulsoryIds.includes(id));
+
+      const hasAllCompulsory = assignedCompulsory.length >= 4;
+      const hasMinElectives = assignedElectives.length >= 3;
+      const hasMinTotal = assigned.length >= 7;
+
+      const compliant = hasAllCompulsory && hasMinElectives && hasMinTotal;
+
+      const missing = expectedSubjects.filter(id => !assigned.includes(id));
       const missingNames = missing.map(id => subjectMap[id]).filter(Boolean);
 
       return {
@@ -625,7 +634,7 @@ const auditCBCCompliance = async (req, res) => {
         track: student.track?.name ?? '—',
         assignedCount: assigned.length,
         expectedCount: expectedSubjects.length,
-        compliant: missing.length === 0,
+        compliant,
         missingSubjects: missingNames
       };
     }));
