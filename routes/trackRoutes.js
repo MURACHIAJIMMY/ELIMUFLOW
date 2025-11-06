@@ -1,4 +1,6 @@
 const express = require('express');
+const mongoose = require("mongoose");
+const Track = require("../models/track");
 const router = express.Router();
 const { verifyToken, checkRole } = require('../middleware/authMiddleware');
 const trackController = require('../controllers/trackController');
@@ -10,18 +12,28 @@ router.post(
   checkRole(['admin']),
   trackController.createTrack
 );
+
+
 // 📤 Get tracks, optionally filtered by pathwayId
 router.get("/", async (req, res) => {
   try {
     const { pathwayId } = req.query;
-    const query = pathwayId ? { pathway: pathwayId } : {};
+    console.log("[GET /tracks] pathwayId:", pathwayId);
+
+    // ✅ Validate ObjectId
+    const isValidId = mongoose.Types.ObjectId.isValid(pathwayId);
+    const query = isValidId ? { pathway: pathwayId } : {};
+
     const tracks = await Track.find(query);
     res.json(tracks);
   } catch (err) {
-    console.error("[GET /tracks]", err);
+    console.error("[GET /tracks] Error:", err);
     res.status(500).json({ error: "Failed to fetch tracks" });
   }
 });
+
+
+
 
 // 📦 Bulk create tracks
 router.post(
