@@ -1,4 +1,3 @@
-// models/studentSubject.js
 const mongoose = require("mongoose");
 
 const studentSubjectSchema = new mongoose.Schema(
@@ -26,6 +25,11 @@ const studentSubjectSchema = new mongoose.Schema(
     },
     year: { type: Number, default: new Date().getFullYear() },
     score: { type: Number, default: null },
+    school: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "School",
+      required: true
+    }
   },
   { timestamps: true }
 );

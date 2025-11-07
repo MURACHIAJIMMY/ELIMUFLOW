@@ -4,6 +4,7 @@ const Subject = require('../models/subject');
 const Pathway = require('../models/pathway');
 const Track = require('../models/track');
 const StudentSubject = require('../models/studentSubject');
+const School = require('../models/school');
 
 // 📝 Register a new student
 const registerStudent = async (req, res) => {
@@ -22,31 +23,30 @@ const registerStudent = async (req, res) => {
       mathChoice
     } = req.body;
 
-    const exists = await Student.findOne({ admNo: admNo.toUpperCase() });
+    const exists = await Student.findOne({ admNo: admNo.toUpperCase(), school: req.user.schoolId });
     if (exists) return res.status(409).json({ error: 'Admission number already exists.' });
 
-    const pathwayDoc = await Pathway.findOne({ name: pathwayName });
-    const trackDoc = trackName ? await Track.findOne({ name: trackName }) : null;
-    const classDoc = await Class.findOne({ name: className });
+    const pathwayDoc = await Pathway.findOne({ name: pathwayName, school: req.user.schoolId });
+    const trackDoc = trackName ? await Track.findOne({ name: trackName, school: req.user.schoolId }) : null;
+    const classDoc = await Class.findOne({ name: className, school: req.user.schoolId });
 
     if (!pathwayDoc || !classDoc) {
       return res.status(400).json({ error: 'Invalid pathway or class name.' });
     }
 
-    const allSubjects = await Subject.find();
+    const allSubjects = await Subject.find({ school: req.user.schoolId });
 
-const subjectMap = allSubjects.reduce((acc, subj) => {
-  acc[subj.code] = subj;
-  return acc;
-}, {});
+    const subjectMap = allSubjects.reduce((acc, subj) => {
+      acc[subj.code] = subj;
+      return acc;
+    }, {});
 
-const english = subjectMap["101"];
-const csl = subjectMap["CSL"];
-const kiswahili = subjectMap["102"];
-const ksl = subjectMap["504"];
-const coreMath = subjectMap["121"];
-const essentialMath = subjectMap["122"];
-
+    const english = subjectMap["101"];
+    const csl = subjectMap["CSL"];
+    const kiswahili = subjectMap["102"];
+    const ksl = subjectMap["504"];
+    const coreMath = subjectMap["121"];
+    const essentialMath = subjectMap["122"];
 
     const mathSubject =
       mathChoice === 'core' ? coreMath :
@@ -82,7 +82,8 @@ const essentialMath = subjectMap["122"];
       class: classDoc._id,
       pathway: pathwayDoc._id,
       track: trackDoc?._id || undefined,
-      selectedSubjects: finalSubjects
+      selectedSubjects: finalSubjects,
+      school: req.user.schoolId // ✅ inject school context
     });
 
     await Promise.all(
@@ -93,7 +94,8 @@ const essentialMath = subjectMap["122"];
           student: student._id,
           subject: subjectId,
           autoAssigned: isAuto,
-          category
+          category,
+          school: req.user.schoolId // ✅ inject school context
         });
       })
     );
@@ -104,6 +106,7 @@ const essentialMath = subjectMap["122"];
     res.status(500).json({ error: err.message });
   }
 };
+
 // 📝 Bulk register students
 const bulkRegisterStudents = async (req, res) => {
   try {
@@ -114,8 +117,8 @@ const bulkRegisterStudents = async (req, res) => {
         .json({ error: "Provide an array of student objects." });
     }
 
-    // 📚 Fetch all subjects once
-    const allSubjects = await Subject.find();
+    // 📚 Fetch all subjects once (scoped by school)
+    const allSubjects = await Subject.find({ school: req.user.schoolId });
 
     // 🔍 Create subject lookup map
     const subjectMap = allSubjects.reduce((acc, subj) => {
@@ -123,25 +126,23 @@ const bulkRegisterStudents = async (req, res) => {
       return acc;
     }, {});
 
-    const english = subjectMap["101"]; // English
-    const csl = subjectMap["CSL"]; // Community Service Learning
-    const kiswahili = subjectMap["102"]; // Kiswahili
-    const ksl = subjectMap["504"]; // Kenyan Sign Language
-    const coreMath = subjectMap["121"]; // Core Math
-    const essentialMath = subjectMap["122"]; // Essential Math
+    const english = subjectMap["101"];
+    const csl = subjectMap["CSL"];
+    const kiswahili = subjectMap["102"];
+    const ksl = subjectMap["504"];
+    const coreMath = subjectMap["121"];
+    const essentialMath = subjectMap["122"];
 
-    // 📦 Fetch pathway, track, class
+    // 📦 Fetch pathway, track, class (scoped by school)
     const [pathwayDocs, trackDocs, classDocs] = await Promise.all([
-      Pathway.find(),
-      Track.find(),
-      Class.find(),
+      Pathway.find({ school: req.user.schoolId }),
+      Track.find({ school: req.user.schoolId }),
+      Class.find({ school: req.user.schoolId }),
     ]);
 
-    const pathwayMap = Object.fromEntries(
-      pathwayDocs.map((p) => [p.name, p._id])
-    );
-    const trackMap = Object.fromEntries(trackDocs.map((t) => [t.name, t._id]));
-    const classMap = Object.fromEntries(classDocs.map((c) => [c.name, c._id]));
+    const pathwayMap = Object.fromEntries(pathwayDocs.map(p => [p.name, p._id]));
+    const trackMap = Object.fromEntries(trackDocs.map(t => [t.name, t._id]));
+    const classMap = Object.fromEntries(classDocs.map(c => [c.name, c._id]));
 
     // 🧠 Group subjects by pathway
     const subjectsByPathway = allSubjects.reduce((acc, subj) => {
@@ -168,7 +169,7 @@ const bulkRegisterStudents = async (req, res) => {
           mathChoice,
         } = student;
 
-        const exists = await Student.findOne({ admNo: admNo.toUpperCase() });
+        const exists = await Student.findOne({ admNo: admNo.toUpperCase(), school: req.user.schoolId });
         if (exists) return null;
 
         const pathwayId = pathwayMap[pathwayName];
@@ -197,14 +198,10 @@ const bulkRegisterStudents = async (req, res) => {
         ].filter(Boolean);
 
         const validOptionalSubjects = selectedSubjects.filter((subjectId) =>
-          subjectsByPathway[pathwayId?.toString()]?.includes(
-            subjectId.toString()
-          )
+          subjectsByPathway[pathwayId?.toString()]?.includes(subjectId.toString())
         );
 
-        const finalSubjects = [
-          ...new Set([...compulsorySubjects, ...validOptionalSubjects]),
-        ];
+        const finalSubjects = [...new Set([...compulsorySubjects, ...validOptionalSubjects])];
 
         return {
           admNo: admNo.toUpperCase(),
@@ -217,6 +214,7 @@ const bulkRegisterStudents = async (req, res) => {
           track: trackId || undefined,
           selectedSubjects: finalSubjects,
           compulsorySubjects,
+          school: req.user.schoolId // ✅ inject school context
         };
       })
     );
@@ -224,10 +222,7 @@ const bulkRegisterStudents = async (req, res) => {
     // 🚀 Create students
     const filtered = preparedStudents.filter(Boolean);
     const created = await Student.insertMany(
-      filtered.map((s) => {
-        const { compulsorySubjects, ...studentData } = s;
-        return studentData;
-      })
+      filtered.map(({ compulsorySubjects, ...studentData }) => studentData)
     );
 
     // 🔗 Create StudentSubject links
@@ -242,14 +237,13 @@ const bulkRegisterStudents = async (req, res) => {
             subject: subjectId,
             autoAssigned: isAuto,
             category,
+            school: req.user.schoolId // ✅ inject school context
           });
         });
       })
     );
 
-    res
-      .status(201)
-      .json({ message: "Students registered.", students: created });
+    res.status(201).json({ message: "Students registered.", students: created });
   } catch (err) {
     console.error("[bulkRegisterStudents]", err);
     res.status(500).json({ error: err.message });
@@ -261,24 +255,27 @@ const bulkRegisterStudents = async (req, res) => {
 const getStudentProfile = async (req, res) => {
   try {
     const { studentId } = req.params;
-    const student = await Student.findById(studentId)
-      .populate('class pathway track selectedSubjects');
+
+    const student = await Student.findOne({
+      _id: studentId,
+      school: req.user.schoolId // ✅ scoped by verified school
+    }).populate('class pathway track selectedSubjects');
 
     if (!student)
       return res.status(404).json({ error: 'Student not found.' });
 
     res.status(200).json(student);
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
 
+
 // 📄 Get all students
 const getAllStudents = async (req, res) => {
   try {
-    const students = await Student.find()
+    const students = await Student.find({ school: req.user.schoolId }) // ✅ scoped by school
       .populate('pathway', 'name')
       .populate('track', 'name')
       .populate('class', 'grade name')
@@ -289,11 +286,11 @@ const getAllStudents = async (req, res) => {
 
     const formatted = await Promise.all(
       students.map(async s => {
-        // 🔄 Load synced subjects from StudentSubject
-        let subjectLinks = await StudentSubject.find({ student: s._id })
-          .populate('subject', 'name code group');
+        let subjectLinks = await StudentSubject.find({
+          student: s._id,
+          school: req.user.schoolId // ✅ scoped by school
+        }).populate('subject', 'name code group');
 
-        // 🧯 Fallback to selectedSubjects if StudentSubject is empty
         if (!subjectLinks.length && s.selectedSubjects?.length) {
           subjectLinks = s.selectedSubjects.map(sub => ({
             subject: sub,
@@ -304,7 +301,6 @@ const getAllStudents = async (req, res) => {
           }));
         }
 
-        // 🧠 Format subject metadata
         const subjects = subjectLinks
           .filter(link => link.subject)
           .map(link => ({
@@ -318,7 +314,6 @@ const getAllStudents = async (req, res) => {
             year: link.year
           }));
 
-        // 📘 Group by category
         const compulsorySubjects = subjects.filter(sub => sub.category === 'Compulsory');
         const electiveSubjects = subjects.filter(sub => sub.category === 'Elective');
 
@@ -354,7 +349,10 @@ const getStudentSubjects = async (req, res) => {
   try {
     const { studentId } = req.params;
 
-    const student = await Student.findById(studentId)
+    const student = await Student.findOne({
+      _id: studentId,
+      school: req.user.schoolId // ✅ scoped by school
+    })
       .populate('pathway', 'name')
       .populate('track', 'name')
       .populate('class', 'grade name')
@@ -364,8 +362,10 @@ const getStudentSubjects = async (req, res) => {
       return res.status(404).json({ message: 'Student not found' });
 
     // 🔄 Load synced subjects from StudentSubject
-    let subjectLinks = await StudentSubject.find({ student: student._id })
-      .populate('subject', 'name code group');
+    let subjectLinks = await StudentSubject.find({
+      student: student._id,
+      school: req.user.schoolId // ✅ scoped by school
+    }).populate('subject', 'name code group');
 
     // 🧯 Fallback to selectedSubjects if StudentSubject is empty
     if (!subjectLinks.length && student.selectedSubjects?.length) {
@@ -416,10 +416,11 @@ const getStudentSubjects = async (req, res) => {
   }
 };
 
+
 // 📄 Get all students with their subjects
 const getAllStudentsWithSubjects = async (req, res) => {
   try {
-    const students = await Student.find({})
+    const students = await Student.find({ school: req.user.schoolId }) // ✅ scoped by school
       .populate('selectedSubjects', 'name code group compulsory')
       .populate('class', 'name grade')
       .populate('pathway', 'name')
@@ -440,12 +441,12 @@ const getAllStudentsWithSubjects = async (req, res) => {
 const getStudentsWithSubjectsByClassName = async (req, res) => {
   try {
     const { className } = req.params;
-    const cls = await Class.findOne({ name: className });
 
+    const cls = await Class.findOne({ name: className, school: req.user.schoolId }); // ✅ scoped by school
     if (!cls)
       return res.status(404).json({ message: 'Class not found' });
 
-    const students = await Student.find({ class: cls._id })
+    const students = await Student.find({ class: cls._id, school: req.user.schoolId }) // ✅ scoped by school
       .populate('selectedSubjects', 'name group compulsory')
       .select('admNo name grade selectedSubjects');
 
@@ -454,7 +455,6 @@ const getStudentsWithSubjectsByClassName = async (req, res) => {
       count: students.length,
       students
     });
-
   } catch (err) {
     console.error('[GetStudentsWithSubjectsByClassName]', err);
     res.status(500).json({ error: 'Error fetching students by class' });
@@ -466,12 +466,14 @@ const getStudentsWithSubjectsByClassName = async (req, res) => {
 const getStudentsByClass = async (req, res) => {
   try {
     const { classId, className } = req.params;
-    const classQuery = classId ? { _id: classId } : { name: className.trim() };
+    const classQuery = classId
+      ? { _id: classId, school: req.user.schoolId } // ✅ scoped by school
+      : { name: className.trim(), school: req.user.schoolId }; // ✅ scoped by school
 
     const cls = await Class.findOne(classQuery);
     if (!cls) return res.status(404).json({ error: 'Class not found.' });
 
-    const students = await Student.find({ class: cls._id })
+    const students = await Student.find({ class: cls._id, school: req.user.schoolId }) // ✅ scoped by school
       .select('admNo nemisNo name gender')
       .sort({ admNo: 1 });
 
@@ -503,7 +505,7 @@ const updateStudentByAdmNo = async (req, res) => {
 
     // 🔍 Resolve className to class ID
     if (updates.className) {
-      const classDoc = await Class.findOne({ name: updates.className });
+      const classDoc = await Class.findOne({ name: updates.className, school: req.user.schoolId }); // ✅ scoped
       if (!classDoc) return res.status(400).json({ error: 'Invalid class name.' });
       updates.class = classDoc._id;
       delete updates.className;
@@ -511,7 +513,7 @@ const updateStudentByAdmNo = async (req, res) => {
 
     // 🔍 Resolve pathwayName to pathway ID
     if (updates.pathwayName) {
-      const pathwayDoc = await Pathway.findOne({ name: updates.pathwayName });
+      const pathwayDoc = await Pathway.findOne({ name: updates.pathwayName, school: req.user.schoolId }); // ✅ scoped
       if (!pathwayDoc) return res.status(400).json({ error: 'Invalid pathway name.' });
       updates.pathway = pathwayDoc._id;
       delete updates.pathwayName;
@@ -519,15 +521,15 @@ const updateStudentByAdmNo = async (req, res) => {
 
     // 🔍 Resolve trackName to track ID
     if (updates.trackName) {
-      const trackDoc = await Track.findOne({ name: updates.trackName });
+      const trackDoc = await Track.findOne({ name: updates.trackName, school: req.user.schoolId }); // ✅ scoped
       if (!trackDoc) return res.status(400).json({ error: 'Invalid track name.' });
       updates.track = trackDoc._id;
       delete updates.trackName;
     }
 
-    // 🔄 Update student by admNo
+    // 🔄 Update student by admNo (scoped by school)
     const student = await Student.findOneAndUpdate(
-      { admNo: admNo.toUpperCase() },
+      { admNo: admNo.toUpperCase(), school: req.user.schoolId }, // ✅ scoped
       updates,
       { new: true }
     );
@@ -536,22 +538,23 @@ const updateStudentByAdmNo = async (req, res) => {
 
     // 🔄 Sync selectedSubjects to StudentSubject if provided
     if (updates.selectedSubjects && Array.isArray(updates.selectedSubjects)) {
-      const allSubjects = await Subject.find();
+      const allSubjects = await Subject.find({ school: req.user.schoolId }); // ✅ scoped
       const subjectMap = Object.fromEntries(allSubjects.map(s => [s._id.toString(), s]));
 
-      const existingLinks = await StudentSubject.find({ student: student._id });
+      const existingLinks = await StudentSubject.find({ student: student._id, school: req.user.schoolId }); // ✅ scoped
       const existingSubjectIds = existingLinks.map(link => link.subject.toString());
 
       const newSubjectIds = updates.selectedSubjects.filter(id => !existingSubjectIds.includes(id));
 
       const newLinks = newSubjectIds.map(subjectId => {
         const subject = subjectMap[subjectId];
-        const category = subject?.category || 'Elective'; // fallback if not defined
+        const category = subject?.category || 'Elective';
         return {
           student: student._id,
           subject: subject._id,
           autoAssigned: false,
-          category
+          category,
+          school: req.user.schoolId // ✅ inject school context
         };
       });
 
@@ -567,18 +570,26 @@ const updateStudentByAdmNo = async (req, res) => {
   }
 };
 
+
 // 🗑️ Delete student by admission number
 const deleteStudentByAdmNo = async (req, res) => {
   try {
     const { admNo } = req.params;
 
-    const student = await Student.findOne({ admNo: admNo.toUpperCase() });
+    const student = await Student.findOne({
+      admNo: admNo.toUpperCase(),
+      school: req.user.schoolId // ✅ scoped by school
+    });
+
     if (!student) {
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    // 🧹 Delete linked StudentSubject entries
-    await StudentSubject.deleteMany({ student: student._id });
+    // 🧹 Delete linked StudentSubject entries (scoped by school)
+    await StudentSubject.deleteMany({
+      student: student._id,
+      school: req.user.schoolId // ✅ scoped by school
+    });
 
     // 🗑️ Delete the student record
     await Student.deleteOne({ _id: student._id });
@@ -593,13 +604,18 @@ const deleteStudentByAdmNo = async (req, res) => {
 // 📊 Audit CBC pathway compliance
 const auditCBCCompliance = async (req, res) => {
   try {
-    const students = await Student.find().populate('pathway track');
-    const allSubjects = await Subject.find();
+    const students = await Student.find({ school: req.user.schoolId }) // ✅ scoped by school
+      .populate('pathway track');
+
+    const allSubjects = await Subject.find({ school: req.user.schoolId }); // ✅ scoped by school
     const subjectMap = Object.fromEntries(allSubjects.map(s => [s._id.toString(), s.name]));
 
     const report = await Promise.all(students.map(async student => {
-      // 🔍 Fetch assigned subjects with category
-      const linkedSubjects = await StudentSubject.find({ student: student._id });
+      const linkedSubjects = await StudentSubject.find({
+        student: student._id,
+        school: req.user.schoolId // ✅ scoped by school
+      });
+
       const assigned = linkedSubjects.map(link => link.subject.toString());
 
       const assignedCompulsory = linkedSubjects
@@ -616,7 +632,6 @@ const auditCBCCompliance = async (req, res) => {
 
       const compliant = hasMinCompulsory && hasMinElectives && hasMinTotal;
 
-      // 🔍 Pathway-required subjects
       const required = student.pathway?.requiredSubjects?.map(s => s.toString()) || [];
       const missing = required.filter(id => !assigned.includes(id));
       const missingNames = missing.map(id => subjectMap[id]).filter(Boolean);
@@ -639,20 +654,25 @@ const auditCBCCompliance = async (req, res) => {
   }
 };
 
-
 // 📚 Get subjects by admission number
 const getStudentSubjectsByAdmNo = async (req, res) => {
   try {
     const { admNo } = req.params;
-    const student = await Student.findOne({ admNo: admNo.toUpperCase() })
+
+    const student = await Student.findOne({
+      admNo: admNo.toUpperCase(),
+      school: req.user.schoolId // ✅ scoped by school
+    })
       .populate('pathway', 'name')
       .populate('track', 'name');
 
     if (!student) 
       return res.status(404).json({ message: 'Student not found' });
 
-    const subjectLinks = await StudentSubject.find({ student: student._id })
-      .populate('subject', 'name code group');
+    const subjectLinks = await StudentSubject.find({
+      student: student._id,
+      school: req.user.schoolId // ✅ scoped by school
+    }).populate('subject', 'name code group');
 
     const subjects = subjectLinks
       .filter(link => link.subject)
@@ -688,7 +708,6 @@ const getStudentSubjectsByAdmNo = async (req, res) => {
     res.status(500).json({ error: 'Error fetching student subjects by admNo' });
   }
 };
-
 
 module.exports = {
   registerStudent,

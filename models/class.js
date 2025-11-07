@@ -12,11 +12,16 @@ const classSchema = new mongoose.Schema({
     enum: [10, 11, 12],
     required: true
   },
+  school: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "School",
+  required: true
+},
   stream: {
-    type: String,
-    enum: ['NORTH', 'EAST', 'WEST', 'SOUTH'],
-    required: true
-  },
+  type: String,
+  required: true,
+  trim: true
+},
   isDefault: {
     type: Boolean,
     default: false // ✅ used for auto-assignment during enrollment sync

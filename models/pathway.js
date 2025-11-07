@@ -1,4 +1,3 @@
-// backend/models/pathway.js
 const mongoose = require('mongoose');
 
 const pathwaySchema = new mongoose.Schema({
@@ -29,7 +28,12 @@ const pathwaySchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Subject'
     }
-  ]
+  ], // ✅ this comma was missing
+  school: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'School',
+    required: true
+  }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Pathway', pathwaySchema);

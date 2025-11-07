@@ -1,6 +1,5 @@
-// backend/controllers/classController.js
 const Class = require('../models/class');
-
+const School = require('../models/school');
 // 📦 Bulk create classes
 const bulkCreateClasses = async (req, res) => {
   try {
@@ -18,6 +17,7 @@ const bulkCreateClasses = async (req, res) => {
       if (!validGrades.includes(cls.grade)) {
         return res.status(400).json({ error: `Invalid grade: ${cls.grade}. Only 10, 11, 12 allowed.` });
       }
+      cls.school = req.user.schoolId; // ✅ inject school context
     }
 
     const created = await Class.insertMany(classes);
@@ -27,11 +27,11 @@ const bulkCreateClasses = async (req, res) => {
   }
 };
 
-// 🔍 Get class by name
+// 🔍 Get class by name (scoped by school)
 const getClassByName = async (req, res) => {
   try {
     const { name } = req.params;
-    const cls = await Class.findOne({ name });
+    const cls = await Class.findOne({ name, school: req.user.schoolId }); // ✅ scoped
 
     if (!cls) return res.status(404).json({ error: 'Class not found.' });
     res.status(200).json(cls);
@@ -40,28 +40,30 @@ const getClassByName = async (req, res) => {
   }
 };
 
-// 📘 Get all classes or filter by grade
+// 📘 Get all classes or filter by grade (scoped by school)
 const getClasses = async (req, res) => {
   try {
     const { grade } = req.query;
+    const query = {
+      school: req.user.schoolId,
+      ...(grade && { grade: parseInt(grade) })
+    };
 
-    const query = grade ? { grade: parseInt(grade) } : {};
     const classes = await Class.find(query);
-
     res.status(200).json(classes);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
-// ✏️ Update class by name
+// ✏️ Update class by name (scoped by school)
 const updateClassByName = async (req, res) => {
   try {
     const { name } = req.params;
     const updates = req.body;
 
     const updatedClass = await Class.findOneAndUpdate(
-      { name },
+      { name, school: req.user.schoolId }, // ✅ scoped
       updates,
       { new: true, runValidators: true }
     );
@@ -80,12 +82,12 @@ const updateClassByName = async (req, res) => {
   }
 };
 
-// 🗑️ Delete class by name
+// 🗑️ Delete class by name (scoped by school)
 const deleteClassByName = async (req, res) => {
   try {
     const { name } = req.params;
 
-    const deletedClass = await Class.findOneAndDelete({ name });
+    const deletedClass = await Class.findOneAndDelete({ name, school: req.user.schoolId }); // ✅ scoped
 
     if (!deletedClass) {
       return res.status(404).json({ error: 'Class not found' });
@@ -98,11 +100,11 @@ const deleteClassByName = async (req, res) => {
   }
 };
 
-// 📊 Get available grades for classes
+// 📊 Get available grades for classes (scoped by school)
 const getAvailableGrades = async (req, res) => {
   try {
-    const grades = await Class.distinct('grade');
-    res.status(200).json(grades.sort()); // e.g. [10, 11, 12]
+    const grades = await Class.distinct('grade', { school: req.user.schoolId }); // ✅ scoped
+    res.status(200).json(grades.sort());
   } catch (err) {
     console.error('[getAvailableGrades]', err);
     res.status(500).json({ error: 'Failed to fetch grades.' });
@@ -115,5 +117,5 @@ module.exports = {
   getClasses,
   updateClassByName,
   deleteClassByName,
-  getAvailableGrades 
+  getAvailableGrades
 };

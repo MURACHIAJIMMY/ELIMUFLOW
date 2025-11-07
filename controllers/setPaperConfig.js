@@ -1,15 +1,16 @@
 const PaperConfig = require('../models/paperConfig');
 const Subject = require('../models/subject');
+const School = require('../models/school');
 
 // 🔐 Set paper config (generic)
 const setPaperConfig = async (req, res) => {
   try {
     const { subject, grade, term, exam, year, papers } = req.body;
 
-    const exists = await PaperConfig.findOne({ subject, grade, term, exam, year });
+    const exists = await PaperConfig.findOne({ subject, grade, term, exam, year, school: req.user.schoolId });
     if (exists) return res.status(409).json({ error: 'Paper config already exists for this subject and period.' });
 
-    const config = await PaperConfig.create({ subject, grade, term, exam, year, papers });
+    const config = await PaperConfig.create({ subject, grade, term, exam, year, papers, school: req.user.schoolId });
     res.status(201).json({ message: 'Paper config created.', config });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -22,11 +23,9 @@ const setPaperConfigByName = async (req, res) => {
     const { subjectName } = req.params;
     const { grade, term, exam, year, papers } = req.body;
 
-    // ✅ Normalize subject name (case-insensitive)
-    const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i') });
+    const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: req.user.schoolId });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
 
-    // ✅ Validate papers structure
     if (!Array.isArray(papers) || papers.length === 0) {
       return res.status(400).json({ error: 'Papers must be a non-empty array.' });
     }
@@ -35,40 +34,32 @@ const setPaperConfigByName = async (req, res) => {
       if (!p.name || typeof p.outOf !== 'number') {
         throw new Error('Each paper must include a name and numeric outOf value.');
       }
-
-      // Extract paper number from name (e.g., "Paper 1" → 1)
       const match = p.name.match(/\d+/);
       const paperNo = match ? parseInt(match[0], 10) : i + 1;
-
-      return {
-        paperNo,
-        total: p.outOf
-      };
+      return { paperNo, total: p.outOf };
     });
 
-    // ✅ Check for existing config
     const exists = await PaperConfig.findOne({
       subject: subject._id,
       grade,
       term,
       exam,
-      year
+      year,
+      school: req.user.schoolId
     });
 
     if (exists) {
-      return res.status(409).json({
-        error: 'Paper config already exists for this subject and period.'
-      });
+      return res.status(409).json({ error: 'Paper config already exists for this subject and period.' });
     }
 
-    // ✅ Create config
     const config = await PaperConfig.create({
       subject: subject._id,
       grade,
       term,
       exam,
       year,
-      papers: parsedPapers
+      papers: parsedPapers,
+      school: req.user.schoolId
     });
 
     res.status(201).json({
@@ -87,17 +78,19 @@ const setPaperConfigByName = async (req, res) => {
     res.status(500).json({ error: 'Error creating paper config.' });
   }
 };
+
 // 🔍 Get paper config by subject name
 const getPaperConfigByName = async (req, res) => {
   try {
     const { subjectName } = req.params;
     const { grade, term, exam, year } = req.query;
 
-    const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i') });
+    const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: req.user.schoolId });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
 
     const query = {
       subject: subject._id,
+      school: req.user.schoolId,
       ...(grade && { grade }),
       ...(term && { term }),
       ...(exam && { exam }),
@@ -107,7 +100,6 @@ const getPaperConfigByName = async (req, res) => {
     const config = await PaperConfig.find(query).populate('subject');
     if (!config.length) return res.status(404).json({ error: 'No paper config found.' });
 
-    // ✅ Format output with LearningArea
     const formatted = config.map(cfg => ({
       LearningArea: cfg.subject?.name,
       grade: cfg.grade,
@@ -127,7 +119,7 @@ const getPaperConfigByName = async (req, res) => {
 // 🔍 Get all paper configs
 const getPaperConfigs = async (req, res) => {
   try {
-    const configs = await PaperConfig.find().populate('subject');
+    const configs = await PaperConfig.find({ school: req.user.schoolId }).populate('subject');
 
     const formatted = configs.map(cfg => ({
       LearningArea: cfg.subject?.name,
@@ -144,22 +136,20 @@ const getPaperConfigs = async (req, res) => {
     res.status(500).json({ error: 'Error fetching paper configs.' });
   }
 };
+
 // ✏️ Update paper config by subject name
 const updatePaperConfigByName = async (req, res) => {
   try {
-    // 🔓 Decode and normalize subject name
     const rawSubject = decodeURIComponent(req.params.subjectName).trim();
-    const subjectName = rawSubject.replace(/\s+/g, " "); // collapse multiple spaces
+    const subjectName = rawSubject.replace(/\s+/g, " ");
 
     const { grade, term, exam, year, papers } = req.body;
 
-    // 🔍 Match subject case-insensitively
-    const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i') });
+    const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: req.user.schoolId });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
 
-    // 🔧 Update config
     const updated = await PaperConfig.findOneAndUpdate(
-      { subject: subject._id, grade, term, exam, year },
+      { subject: subject._id, grade, term, exam, year, school: req.user.schoolId },
       { papers },
       { new: true }
     ).populate('subject');
@@ -182,11 +172,12 @@ const updatePaperConfigByName = async (req, res) => {
     res.status(500).json({ error: 'Error updating paper config.' });
   }
 };
+
 // 🗑️ Delete paper config by subject name
 const deletePaperConfigByName = async (req, res) => {
   try {
     const rawSubject = decodeURIComponent(req.params.subjectName).trim();
-    const subject = await Subject.findOne({ name: new RegExp(`^${rawSubject}$`, 'i') });
+    const subject = await Subject.findOne({ name: new RegExp(`^${rawSubject}$`, 'i'), school: req.user.schoolId });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
 
     const { grade, term, exam, year } = req.query;
@@ -196,7 +187,8 @@ const deletePaperConfigByName = async (req, res) => {
       grade,
       term,
       exam,
-      year
+      year,
+      school: req.user.schoolId
     });
 
     if (!deleted) return res.status(404).json({ error: 'Config not found to delete.' });

@@ -21,7 +21,13 @@ const trackSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Pathway',
     required: true
-  }
+  },
+  school: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'School',
+  required: true
+}
+
 }, { timestamps: true });
 
 module.exports = mongoose.model('Track', trackSchema);

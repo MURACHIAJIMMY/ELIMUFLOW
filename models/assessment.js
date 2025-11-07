@@ -29,8 +29,8 @@ const assessmentSchema = new mongoose.Schema({
   },
   exam: {
     type: String,
-    enum: ['Opener', 'Midterm', 'Endterm'],
-    required: true
+    required: true,
+    trim: true // ✅ dropped enum for flexibility
   },
   year: {
     type: Number,
@@ -40,8 +40,6 @@ const assessmentSchema = new mongoose.Schema({
     type: [paperSchema],
     validate: v => Array.isArray(v) && v.length > 0
   },
-
-  // ✅ CBC-aligned grade with level
   grade: {
     type: String,
     enum: [
@@ -53,16 +51,19 @@ const assessmentSchema = new mongoose.Schema({
     ],
     default: null
   },
-
   comment: {
     type: String,
     default: ''
   },
-
   entryDate: {
     type: Date,
     default: Date.now
+  },
+  school: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'School',
+    required: true
   }
-});
+}, { timestamps: true });
 
 module.exports = mongoose.model('Assessment', assessmentSchema);

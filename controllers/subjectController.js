@@ -2,6 +2,8 @@
 const Subject = require('../models/subject');
 const Pathway = require('../models/pathway');
 const Track = require('../models/track');
+const School = require('../models/school');
+
 const { subjectPools } = require('../utils/subjectPools');
 // 🔒 Create a single subject
 const createSubject = async (req, res) => {
@@ -16,11 +18,21 @@ const createSubject = async (req, res) => {
       lessonsPerWeek
     } = req.body;
 
-    const exists = await Subject.findOne({ code: code.toUpperCase() });
+    const exists = await Subject.findOne({
+      code: code.toUpperCase(),
+      school: req.user.schoolId // ✅ scoped by school
+    });
     if (exists) return res.status(409).json({ error: 'Subject code already exists.' });
 
-    const pathwayDoc = await Pathway.findOne({ name: pathwayName });
-    const trackDoc = await Track.findOne({ code: trackCode });
+    const pathwayDoc = await Pathway.findOne({
+      name: pathwayName,
+      school: req.user.schoolId // ✅ scoped by school
+    });
+
+    const trackDoc = await Track.findOne({
+      code: trackCode,
+      school: req.user.schoolId // ✅ scoped by school
+    });
 
     if (!pathwayDoc || !trackDoc) {
       return res.status(404).json({ error: 'Pathway or track not found.' });
@@ -33,7 +45,8 @@ const createSubject = async (req, res) => {
       compulsory,
       pathway: pathwayDoc._id,
       track: trackDoc._id,
-      lessonsPerWeek
+      lessonsPerWeek,
+      school: req.user.schoolId // ✅ inject school context
     });
 
     const populated = await Subject.findById(subject._id)
@@ -60,6 +73,7 @@ const createSubject = async (req, res) => {
   }
 };
 
+
 // 📦 Bulk create subjects
 const bulkCreateSubjects = async (req, res) => {
   try {
@@ -68,8 +82,15 @@ const bulkCreateSubjects = async (req, res) => {
       return res.status(400).json({ error: 'Provide an array of subject objects.' });
     }
 
-    const defaultPathway = await Pathway.findOne({ name: 'Compulsory' });
-    const defaultTrack = await Track.findOne({ code: 'CORE' });
+    const defaultPathway = await Pathway.findOne({
+      name: 'Compulsory',
+      school: req.user.schoolId // ✅ scoped by school
+    });
+
+    const defaultTrack = await Track.findOne({
+      code: 'CORE',
+      school: req.user.schoolId // ✅ scoped by school
+    });
 
     if (!defaultPathway || !defaultTrack) {
       return res.status(500).json({ error: 'Default pathway or track not found. Please seed them first.' });
@@ -79,11 +100,11 @@ const bulkCreateSubjects = async (req, res) => {
 
     for (const raw of rawSubjects) {
       const pathwayDoc = raw.pathwayName
-        ? await Pathway.findOne({ name: raw.pathwayName })
+        ? await Pathway.findOne({ name: raw.pathwayName, school: req.user.schoolId }) // ✅ scoped
         : defaultPathway;
 
       const trackDoc = raw.trackCode
-        ? await Track.findOne({ code: raw.trackCode })
+        ? await Track.findOne({ code: raw.trackCode, school: req.user.schoolId }) // ✅ scoped
         : defaultTrack;
 
       if (!pathwayDoc || !trackDoc) {
@@ -98,7 +119,8 @@ const bulkCreateSubjects = async (req, res) => {
         compulsory: raw.compulsory ?? false,
         pathway: pathwayDoc._id,
         track: trackDoc._id,
-        lessonsPerWeek: raw.lessonsPerWeek || 5
+        lessonsPerWeek: raw.lessonsPerWeek || 5,
+        school: req.user.schoolId // ✅ inject school context
       });
     }
 
@@ -108,7 +130,6 @@ const bulkCreateSubjects = async (req, res) => {
 
     const created = await Subject.insertMany(resolvedSubjects);
 
-    // ✅ Populate for frontend clarity
     const populated = await Subject.find({ _id: { $in: created.map(s => s._id) } })
       .populate({ path: 'pathway', select: 'name' })
       .populate({ path: 'track', select: 'name code' });
@@ -133,7 +154,7 @@ const bulkCreateSubjects = async (req, res) => {
 // ✅ Validate subject registry
 const validateSubjectRegistry = async (req, res) => {
   try {
-    const subjects = await Subject.find();
+    const subjects = await Subject.find({ school: req.user.schoolId }); // ✅ scoped by school
     const duplicates = [];
 
     const seenCodes = new Set();
@@ -153,16 +174,22 @@ const validateSubjectRegistry = async (req, res) => {
 const getSubjectsByPathwayTrack = async (req, res) => {
   try {
     const { pathwayName, trackCode } = req.query;
-    const query = {};
+    const query = { school: req.user.schoolId }; // ✅ scoped by school
 
     if (pathwayName) {
-      const pathwayDoc = await Pathway.findOne({ name: pathwayName });
+      const pathwayDoc = await Pathway.findOne({
+        name: pathwayName,
+        school: req.user.schoolId // ✅ scoped by school
+      });
       if (!pathwayDoc) return res.status(404).json({ error: 'Pathway not found.' });
       query.pathway = pathwayDoc._id;
     }
 
     if (trackCode) {
-      const trackDoc = await Track.findOne({ code: trackCode });
+      const trackDoc = await Track.findOne({
+        code: trackCode,
+        school: req.user.schoolId // ✅ scoped by school
+      });
       if (!trackDoc) return res.status(404).json({ error: 'Track not found.' });
       query.track = trackDoc._id;
     }
@@ -186,11 +213,12 @@ const getSubjectsByPathwayTrack = async (req, res) => {
     res.status(500).json({ error: 'Failed to filter subjects.' });
   }
 };
+
 // 📄 Get all subjects
 const getAllSubjects = async (req, res) => {
   try {
-    const subjects = await Subject.find()
-      .select('name code group lessonsPerWeek compulsory') // ✅ Include lessonsPerWeek and compulsory
+    const subjects = await Subject.find({ school: req.user.schoolId }) // ✅ scoped by school
+      .select('name code group lessonsPerWeek compulsory')
       .populate({ path: 'pathway', select: 'name' })
       .populate({ path: 'track', select: 'name code' });
 
@@ -215,7 +243,10 @@ const getAllSubjects = async (req, res) => {
 // 📄 Get compulsory subjects
 const getCompulsorySubjects = async (req, res) => {
   try {
-    const subjects = await Subject.find({ compulsory: true })
+    const subjects = await Subject.find({
+      compulsory: true,
+      school: req.user.schoolId // ✅ scoped by school
+    })
       .select('name code group lessonsPerWeek')
       .populate({ path: 'pathway', select: 'name' })
       .populate({ path: 'track', select: 'name code' });
@@ -236,6 +267,7 @@ const getCompulsorySubjects = async (req, res) => {
   }
 };
 
+
 // 🔧 Update subject by name
 const updateSubjectByName = async (req, res) => {
   try {
@@ -243,7 +275,7 @@ const updateSubjectByName = async (req, res) => {
     const updates = req.body;
 
     const subject = await Subject.findOneAndUpdate(
-      { name: subjectName },
+      { name: subjectName, school: req.user.schoolId }, // ✅ scoped by school
       updates,
       { new: true }
     ).populate([
@@ -279,10 +311,10 @@ const bulkUpdateSubjects = async (req, res) => {
   try {
     const updates = req.body; // [{ name: 'Biology', updates: { lessonsPerWeek: 6, pathway: 'STEM' } }, ...]
 
-    // Helper to resolve name to ObjectId
+    // Helper to resolve name to ObjectId scoped by school
     const resolveRef = async (model, name) => {
       if (!name || typeof name !== 'string') return null;
-      const doc = await model.findOne({ name });
+      const doc = await model.findOne({ name, school: req.user.schoolId }); // ✅ scoped
       return doc?._id || null;
     };
 
@@ -297,7 +329,7 @@ const bulkUpdateSubjects = async (req, res) => {
         }
 
         const subject = await Subject.findOneAndUpdate(
-          { name },
+          { name, school: req.user.schoolId }, // ✅ scoped by school
           updates,
           { new: true }
         ).populate([
@@ -329,6 +361,7 @@ const bulkUpdateSubjects = async (req, res) => {
     res.status(500).json({ error: 'Failed to update subjects.' });
   }
 };
+
 // ❌ Delete subject by name
 const deleteSubjectByName = async (req, res) => {
   try {
@@ -338,7 +371,10 @@ const deleteSubjectByName = async (req, res) => {
       return res.status(400).json({ error: "Subject name is required." });
     }
 
-    const deleted = await Subject.findOneAndDelete({ name });
+    const deleted = await Subject.findOneAndDelete({
+      name,
+      school: req.user.schoolId // ✅ scoped by school
+    });
 
     if (!deleted) {
       return res.status(404).json({ error: `Subject '${name}' not found.` });
@@ -357,7 +393,6 @@ const deleteSubjectByName = async (req, res) => {
     res.status(500).json({ error: 'Failed to delete subject.' });
   }
 };
-
 
 module.exports = {
   createSubject,

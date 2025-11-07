@@ -13,6 +13,11 @@ const studentSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  school: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'School',
+  required: true
+},
   nemisNo: {
   type: String,
   unique: true,

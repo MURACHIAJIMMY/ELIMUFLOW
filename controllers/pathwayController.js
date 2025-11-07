@@ -1,19 +1,19 @@
-// backend/controllers/pathwayController.js
 const Pathway = require('../models/pathway');
 const Track = require('../models/track');
 const Subject = require('../models/subject'); // ✅ Ensure Subject is imported
+const School = require('../models/school');
 
 // 📥 Create a new pathway using track codes
 const createPathway = async (req, res) => {
   try {
     const { name, description, trackCodes, requiredSubjects, defaultElectives } = req.body;
 
-    const exists = await Pathway.findOne({ name });
+    const exists = await Pathway.findOne({ name, school: req.user.schoolId });
     if (exists) return res.status(409).json({ error: 'Pathway already exists.' });
 
     let trackIds = [];
     if (Array.isArray(trackCodes) && trackCodes.length > 0) {
-      const tracks = await Track.find({ code: { $in: trackCodes.map(c => c.toUpperCase()) } });
+      const tracks = await Track.find({ code: { $in: trackCodes.map(c => c.toUpperCase()) }, school: req.user.schoolId });
       trackIds = tracks.map(t => t._id);
     }
 
@@ -22,10 +22,10 @@ const createPathway = async (req, res) => {
       description,
       tracks: trackIds,
       requiredSubjects,
-      defaultElectives
+      defaultElectives,
+      school: req.user.schoolId
     });
 
-    // ✅ Sync each track to reference this pathway
     if (trackIds.length > 0) {
       await Track.updateMany(
         { _id: { $in: trackIds } },
@@ -53,10 +53,9 @@ const bulkCreatePathways = async (req, res) => {
     for (const raw of rawPathways) {
       const { name, description, trackCodes = [], requiredSubjects = [], defaultElectives = [] } = raw;
 
-      // Resolve trackCodes to trackIds only if provided
       let trackIds = [];
       if (trackCodes.length > 0) {
-        const tracks = await Track.find({ code: { $in: trackCodes.map(c => c.toUpperCase()) } });
+        const tracks = await Track.find({ code: { $in: trackCodes.map(c => c.toUpperCase()) }, school: req.user.schoolId });
         trackIds = tracks.map(t => t._id);
       }
 
@@ -65,13 +64,13 @@ const bulkCreatePathways = async (req, res) => {
         description,
         tracks: trackIds,
         requiredSubjects,
-        defaultElectives
+        defaultElectives,
+        school: req.user.schoolId
       });
     }
 
     const created = await Pathway.insertMany(resolved);
 
-    // Link tracks to pathway
     for (const pathway of created) {
       if (Array.isArray(pathway.tracks) && pathway.tracks.length > 0) {
         await Track.updateMany(
@@ -90,7 +89,7 @@ const bulkCreatePathways = async (req, res) => {
 // 📋 Get all pathways
 const getAllPathways = async (req, res) => {
   try {
-    const pathways = await Pathway.find()
+    const pathways = await Pathway.find({ school: req.user.schoolId })
       .select('_id name description')
       .populate({
         path: 'tracks',
@@ -115,13 +114,12 @@ const getAllPathways = async (req, res) => {
   }
 };
 
-
 // 📄 Get pathway by name and populate subject names
 const getPathwayByName = async (req, res) => {
   try {
     const { name } = req.params;
 
-    const pathway = await Pathway.findOne({ name });
+    const pathway = await Pathway.findOne({ name, school: req.user.schoolId });
     if (!pathway) {
       return res.status(404).json({ error: 'Pathway not found' });
     }
@@ -142,13 +140,12 @@ const getPathwayByName = async (req, res) => {
   }
 };
 
-
 // 📄 Get pathway by name and populate tracks + subject names
 const getPathwayDetailsByName = async (req, res) => {
   try {
     const { name } = req.params;
 
-    const pathway = await Pathway.findOne({ name }).select('_id name description');
+    const pathway = await Pathway.findOne({ name, school: req.user.schoolId }).select('_id name description');
     if (!pathway) {
       return res.status(404).json({ error: 'Pathway not found' });
     }
@@ -189,7 +186,12 @@ const updatePathway = async (req, res) => {
     const { pathwayId } = req.params;
     const updates = req.body;
 
-    const updated = await Pathway.findByIdAndUpdate(pathwayId, updates, { new: true });
+    const updated = await Pathway.findOneAndUpdate(
+      { _id: pathwayId, school: req.user.schoolId },
+      updates,
+      { new: true }
+    );
+
     if (!updated) return res.status(404).json({ error: 'Pathway not found.' });
 
     res.status(200).json({ message: 'Pathway updated.', pathway: updated });
@@ -198,12 +200,11 @@ const updatePathway = async (req, res) => {
   }
 };
 
-
 // 🗑️ Delete a pathway using name (not ID)
 const deletePathway = async (req, res) => {
   try {
-    const { pathwayId } = req.params; // pathwayId is actually the name
-    const deleted = await Pathway.findOneAndDelete({ name: pathwayId });
+    const { pathwayId } = req.params;
+    const deleted = await Pathway.findOneAndDelete({ name: pathwayId, school: req.user.schoolId });
 
     if (!deleted) return res.status(404).json({ error: "Pathway not found." });
     res.status(200).json({ message: `Deleted pathway: ${pathwayId}`, pathway: deleted });
@@ -212,13 +213,11 @@ const deletePathway = async (req, res) => {
   }
 };
 
-
 // 🔧 Update single or multiple pathways by name
 const updatePathwaysByName = async (req, res) => {
   try {
     const payload = req.body;
 
-    // 🔁 Bulk update
     if (Array.isArray(payload)) {
       const results = [];
 
@@ -228,7 +227,7 @@ const updatePathwaysByName = async (req, res) => {
         if (newName) fields.name = newName;
 
         const updated = await Pathway.findOneAndUpdate(
-          { name: new RegExp(`^${name}$`, 'i') },
+          { name: new RegExp(`^${name}$`, 'i'), school: req.user.schoolId },
           fields,
           { new: true, runValidators: true }
         ).select('_id name description code');
@@ -243,7 +242,6 @@ const updatePathwaysByName = async (req, res) => {
       });
     }
 
-    // ✏️ Single update
     const { name, newName, ...fields } = payload;
     if (!name) {
       return res.status(400).json({ error: 'Missing pathway name' });
@@ -253,7 +251,7 @@ const updatePathwaysByName = async (req, res) => {
     }
 
     const updated = await Pathway.findOneAndUpdate(
-      { name: new RegExp(`^${name}$`, 'i') },
+      { name: new RegExp(`^${name}$`, 'i'), school: req.user.schoolId },
       fields,
       { new: true, runValidators: true }
     ).select('_id name description code');
@@ -269,6 +267,7 @@ const updatePathwaysByName = async (req, res) => {
   } catch (err) {
     console.error('[UpdatePathwaysByName]', err);
     res.status(500).json({ error: 'Update failed' });
+
   }
 };
 

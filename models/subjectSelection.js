@@ -1,4 +1,3 @@
-// backend/models/subjectSelection.js
 const mongoose = require('mongoose');
 
 const subjectSelectionSchema = new mongoose.Schema({
@@ -13,7 +12,12 @@ const subjectSelectionSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Subject'
     }
-  ]
+  ],
+  school: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'School',
+    required: true
+  }
 }, { timestamps: true });
 
 module.exports = mongoose.model('SubjectSelection', subjectSelectionSchema);

@@ -1,4 +1,3 @@
-// backend/models/paperConfig.js
 const mongoose = require('mongoose');
 
 const paperSchema = new mongoose.Schema({
@@ -22,10 +21,10 @@ const paperConfigSchema = new mongoose.Schema({
     required: true
   },
   exam: {
-    type: String,
-    enum: ['Opener', 'Midterm', 'End Term'],
-    required: true
-  },
+  type: String,
+  required: true,
+  trim: true
+}, 
   year: {
     type: Number,
     required: true
@@ -33,6 +32,11 @@ const paperConfigSchema = new mongoose.Schema({
   papers: {
     type: [paperSchema],
     validate: v => Array.isArray(v) && v.length > 0
+  },
+  school: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'School',
+    required: true
   }
 }, { timestamps: true });
 

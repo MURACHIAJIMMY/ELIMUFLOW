@@ -2,6 +2,7 @@ const Student = require('../models/student');
 const Subject = require('../models/subject');
 const SubjectSelection = require('../models/subjectSelection');
 const StudentSubject = require('../models/studentSubject');
+const School = require('../models/school');
 
 // 📝 Controller: Initial subject selection by admission number
 const selectSubjectsByAdmNo = async (req, res) => {
@@ -9,28 +10,50 @@ const selectSubjectsByAdmNo = async (req, res) => {
     const { admNo, electiveNames = [], languagePreference = 'KISW', mathChoice } = req.body;
 
     // 🔍 Resolve student and pathway
-    const student = await Student.findOne({ admNo: admNo.toUpperCase() }).populate('pathway');
+    const student = await Student.findOne({
+      admNo: admNo.toUpperCase(),
+      school: req.user.schoolId // ✅ scoped by school
+    }).populate('pathway');
+
     if (!student) return res.status(404).json({ error: 'Student not found.' });
 
     const pathwayId = student.pathway?._id;
     if (!pathwayId) return res.status(400).json({ error: 'Student has no pathway assigned.' });
 
     // 🧠 Check if selection already exists
-    const existingLinks = await StudentSubject.find({ student: student._id });
+    const existingLinks = await StudentSubject.find({
+      student: student._id,
+      school: req.user.schoolId // ✅ scoped by school
+    });
 
     if (existingLinks.length > 0) {
       // 🧹 Clean up old electives
-      await StudentSubject.deleteMany({ student: student._id, category: 'Elective' });
+      await StudentSubject.deleteMany({
+        student: student._id,
+        category: 'Elective',
+        school: req.user.schoolId // ✅ scoped
+      });
 
       // 🧹 Clean up old language and math subjects
-      const oldCodes = ['102', '504', '121', '122']; // Kiswahili, KSL, Core, Ess
-      const oldChoiceSubjects = await Subject.find({ code: { $in: oldCodes } });
+      const oldCodes = ['102', '504', '121', '122'];
+      const oldChoiceSubjects = await Subject.find({
+        code: { $in: oldCodes },
+        school: req.user.schoolId // ✅ scoped
+      });
       const oldChoiceIds = oldChoiceSubjects.map(sub => sub._id);
-      await StudentSubject.deleteMany({ student: student._id, subject: { $in: oldChoiceIds } });
+      await StudentSubject.deleteMany({
+        student: student._id,
+        subject: { $in: oldChoiceIds },
+        school: req.user.schoolId // ✅ scoped
+      });
     }
 
     // 📋 Fetch valid electives from pathway
-    const pathwayElectives = await Subject.find({ pathway: pathwayId }).select('name _id pathway');
+    const pathwayElectives = await Subject.find({
+      pathway: pathwayId,
+      school: req.user.schoolId // ✅ scoped
+    }).select('name _id pathway');
+
     const selectedElectives = pathwayElectives.filter(sub => electiveNames.includes(sub.name));
 
     if (selectedElectives.length !== 3) {
@@ -44,19 +67,22 @@ const selectSubjectsByAdmNo = async (req, res) => {
 
     // ✅ Dynamically resolve compulsory subjects
     const compulsoryCodes = [
-      'CSL', // Community Service Learning
-      '101', // English
-      languagePreference === 'KSL' ? '504' : '102', // Kiswahili or KSL
+      'CSL',
+      '101',
+      languagePreference === 'KSL' ? '504' : '102',
       student.pathway?.name === 'STEM'
         ? '121'
         : mathChoice === 'core'
         ? '121'
-        : '122' // Math logic
+        : '122'
     ];
 
-    const compulsorySubjectsRaw = await Subject.find({ code: { $in: compulsoryCodes } });
-    const mathSubject = compulsorySubjectsRaw.find(sub => sub.code === '121' || sub.code === '122');
+    const compulsorySubjectsRaw = await Subject.find({
+      code: { $in: compulsoryCodes },
+      school: req.user.schoolId // ✅ scoped
+    });
 
+    const mathSubject = compulsorySubjectsRaw.find(sub => sub.code === '121' || sub.code === '122');
     if (student.pathway?.name === 'STEM' && mathSubject?.code === '122') {
       return res.status(400).json({ error: 'STEM students must take Core Mathematics.' });
     }
@@ -75,7 +101,7 @@ const selectSubjectsByAdmNo = async (req, res) => {
 
     // 🔁 Sync to SubjectSelection
     await SubjectSelection.findOneAndUpdate(
-      { student: student._id },
+      { student: student._id, school: req.user.schoolId }, // ✅ scoped
       { selectedSubjects: finalSubjects },
       { upsert: true, new: true }
     );
@@ -86,21 +112,25 @@ const selectSubjectsByAdmNo = async (req, res) => {
       const category = isAuto ? 'Compulsory' : 'Elective';
 
       await StudentSubject.findOneAndUpdate(
-        { student: student._id, subject: subjectId },
+        { student: student._id, subject: subjectId, school: req.user.schoolId }, // ✅ scoped
         {
           student: student._id,
           subject: subjectId,
           autoAssigned: isAuto,
           category,
           term: 'Term 1',
-          year: new Date().getFullYear()
+          year: new Date().getFullYear(),
+          school: req.user.schoolId // ✅ inject school context
         },
         { upsert: true, new: true }
       );
     }
 
     // 📊 Return resolved subject details
-    const resolvedSubjects = await Subject.find({ _id: { $in: finalSubjects } }).populate(['pathway', 'track']);
+    const resolvedSubjects = await Subject.find({
+      _id: { $in: finalSubjects },
+      school: req.user.schoolId // ✅ scoped
+    }).populate(['pathway', 'track']);
 
     res.status(200).json({
       message: 'Subjects selected successfully.',
@@ -128,15 +158,19 @@ const getSelectedSubjectsByAdmNo = async (req, res) => {
   try {
     const { admNo } = req.params;
 
-    const student = await Student.findOne({ admNo: admNo.toUpperCase() })
-      .populate('pathway');
+    const student = await Student.findOne({
+      admNo: admNo.toUpperCase(),
+      school: req.user.schoolId // ✅ scoped by school
+    }).populate('pathway');
 
     if (!student) {
       return res.status(404).json({ error: 'Student not found.' });
     }
 
-    const subjectLinks = await StudentSubject.find({ student: student._id })
-      .populate('subject', 'name code group lessonsPerWeek');
+    const subjectLinks = await StudentSubject.find({
+      student: student._id,
+      school: req.user.schoolId // ✅ scoped by school
+    }).populate('subject', 'name code group lessonsPerWeek');
 
     if (!subjectLinks.length) {
       return res.status(200).json({
@@ -195,6 +229,7 @@ const getSelectedSubjectsByAdmNo = async (req, res) => {
     res.status(500).json({ error: 'Error fetching selected subjects.' });
   }
 };
+
 // ✍️ Update selected subjects by admission number
 const updateSelectedSubjectsByAdmNo = async (req, res) => {
   try {
@@ -206,23 +241,42 @@ const updateSelectedSubjectsByAdmNo = async (req, res) => {
     }
 
     // 🔍 Resolve student and pathway
-    const student = await Student.findOne({ admNo: admNo.toUpperCase() }).populate('pathway');
+    const student = await Student.findOne({
+      admNo: admNo.toUpperCase(),
+      school: req.user.schoolId // ✅ scoped by school
+    }).populate('pathway');
+
     if (!student) return res.status(404).json({ error: 'Student not found' });
 
     const pathwayId = student.pathway?._id;
     if (!pathwayId) return res.status(400).json({ error: 'Student has no pathway assigned' });
 
     // 🧹 Delete existing electives
-    await StudentSubject.deleteMany({ student: student._id, category: 'Elective' });
+    await StudentSubject.deleteMany({
+      student: student._id,
+      category: 'Elective',
+      school: req.user.schoolId // ✅ scoped
+    });
 
     // 🧹 Delete old language and math choices
-    const oldCodes = ['102', '504', '121', '122']; // Kiswahili, KSL, Core, Ess
-    const oldChoiceSubjects = await Subject.find({ code: { $in: oldCodes } });
+    const oldCodes = ['102', '504', '121', '122'];
+    const oldChoiceSubjects = await Subject.find({
+      code: { $in: oldCodes },
+      school: req.user.schoolId // ✅ scoped
+    });
     const oldChoiceIds = oldChoiceSubjects.map(sub => sub._id);
-    await StudentSubject.deleteMany({ student: student._id, subject: { $in: oldChoiceIds } });
+    await StudentSubject.deleteMany({
+      student: student._id,
+      subject: { $in: oldChoiceIds },
+      school: req.user.schoolId // ✅ scoped
+    });
 
     // 📋 Resolve elective subjects
-    const electiveSubjects = await Subject.find({ name: { $in: subjectNames } }).populate(['pathway', 'track']);
+    const electiveSubjects = await Subject.find({
+      name: { $in: subjectNames },
+      school: req.user.schoolId // ✅ scoped
+    }).populate(['pathway', 'track']);
+
     if (electiveSubjects.length !== 3) {
       return res.status(400).json({ error: 'One or more subject names are invalid' });
     }
@@ -244,9 +298,12 @@ const updateSelectedSubjectsByAdmNo = async (req, res) => {
         : '122'
     ];
 
-    const compulsorySubjectsRaw = await Subject.find({ code: { $in: compulsoryCodes } });
-    const mathSubject = compulsorySubjectsRaw.find(sub => sub.code === '122');
+    const compulsorySubjectsRaw = await Subject.find({
+      code: { $in: compulsoryCodes },
+      school: req.user.schoolId // ✅ scoped
+    });
 
+    const mathSubject = compulsorySubjectsRaw.find(sub => sub.code === '122');
     if (student.pathway?.name === 'STEM' && mathSubject) {
       return res.status(400).json({ error: 'STEM students must take Core Mathematics.' });
     }
@@ -261,7 +318,7 @@ const updateSelectedSubjectsByAdmNo = async (req, res) => {
 
     // 🔁 Sync to SubjectSelection
     await SubjectSelection.findOneAndUpdate(
-      { student: student._id },
+      { student: student._id, school: req.user.schoolId }, // ✅ scoped
       { selectedSubjects: finalSubjects },
       { upsert: true, new: true }
     );
@@ -276,21 +333,25 @@ const updateSelectedSubjectsByAdmNo = async (req, res) => {
       const category = isAuto ? 'Compulsory' : 'Elective';
 
       await StudentSubject.findOneAndUpdate(
-        { student: student._id, subject: subjectId },
+        { student: student._id, subject: subjectId, school: req.user.schoolId }, // ✅ scoped
         {
           student: student._id,
           subject: subjectId,
           autoAssigned: isAuto,
           category,
           term: 'Term 1',
-          year: new Date().getFullYear()
+          year: new Date().getFullYear(),
+          school: req.user.schoolId // ✅ inject school context
         },
         { upsert: true, new: true }
       );
     }
 
     // 📊 Return resolved subject details
-    const resolvedSubjects = await Subject.find({ _id: { $in: finalSubjects } }).populate(['pathway', 'track']);
+    const resolvedSubjects = await Subject.find({
+      _id: { $in: finalSubjects },
+      school: req.user.schoolId // ✅ scoped
+    }).populate(['pathway', 'track']);
 
     res.status(200).json({
       message: 'Subjects updated successfully.',
@@ -318,7 +379,11 @@ const deleteSelectedSubjectsByAdmNo = async (req, res) => {
   try {
     const { admNo } = req.params;
 
-    const student = await Student.findOne({ admNo: admNo.toUpperCase() });
+    const student = await Student.findOne({
+      admNo: admNo.toUpperCase(),
+      school: req.user.schoolId // ✅ scoped by school
+    });
+
     if (!student) {
       return res.status(404).json({ error: 'Student not found' });
     }
@@ -326,13 +391,15 @@ const deleteSelectedSubjectsByAdmNo = async (req, res) => {
     // 🚫 Delete only manually selected electives
     const result = await StudentSubject.deleteMany({
       student: student._id,
-      category: 'Elective'
+      category: 'Elective',
+      school: req.user.schoolId // ✅ scoped by school
     });
 
     // ✅ Fetch remaining compulsory subjects
     const remaining = await StudentSubject.find({
       student: student._id,
-      category: 'Compulsory'
+      category: 'Compulsory',
+      school: req.user.schoolId // ✅ scoped by school
     });
 
     const updatedSubjectIds = remaining.map(s => s.subject);
@@ -343,7 +410,7 @@ const deleteSelectedSubjectsByAdmNo = async (req, res) => {
 
     // ✅ Update SubjectSelection model
     await SubjectSelection.findOneAndUpdate(
-      { student: student._id },
+      { student: student._id, school: req.user.schoolId }, // ✅ scoped
       { selectedSubjects: updatedSubjectIds },
       { upsert: true, new: true }
     );
@@ -362,24 +429,32 @@ const deleteSelectedSubjectsByAdmNo = async (req, res) => {
 // ✅ Validate all students' subject selections for CBC compliance
 const validateAllSubjectSelections = async (req, res) => {
   try {
-    const students = await Student.find().populate('pathway');
+    const students = await Student.find({ school: req.user.schoolId }).populate('pathway');
 
-    const compulsoryCodes = ['ENG', 'CSL', 'KISW', 'KSL', 'MATH-CORE', 'MATH-ESS'];
-    const compulsorySubjects = await Subject.find({ code: { $in: compulsoryCodes } });
+    // 🧠 Dynamically fetch all compulsory subjects
+    const compulsorySubjects = await Subject.find({
+      compulsory: true,
+      school: req.user.schoolId
+    });
+
     const compulsoryMap = Object.fromEntries(compulsorySubjects.map(s => [s.code, s._id.toString()]));
 
     const report = [];
 
     for (const student of students) {
-      const subjectLinks = await StudentSubject.find({ student: student._id }).populate('subject pathway');
+      const subjectLinks = await StudentSubject.find({
+        student: student._id,
+        school: req.user.schoolId
+      }).populate('subject pathway');
 
       const selected = subjectLinks.map(link => link.subject._id.toString());
       const total = selected.length;
 
-      const hasEnglish = selected.includes(compulsoryMap['ENG']);
+      // ✅ Validate compulsory presence by code
+      const hasEnglish = selected.includes(compulsoryMap['101']);
       const hasCSL = selected.includes(compulsoryMap['CSL']);
-      const hasLanguage = selected.includes(compulsoryMap['KISW']) || selected.includes(compulsoryMap['KSL']);
-      const hasMath = selected.includes(compulsoryMap['MATH-CORE']) || selected.includes(compulsoryMap['MATH-ESS']);
+      const hasLanguage = selected.includes(compulsoryMap['102']) || selected.includes(compulsoryMap['504']);
+      const hasMath = selected.includes(compulsoryMap['121']) || selected.includes(compulsoryMap['122']);
 
       const compulsoryValid = hasEnglish && hasCSL && hasLanguage && hasMath;
 
@@ -411,13 +486,18 @@ const validateAllSubjectSelections = async (req, res) => {
     res.status(500).json({ error: 'Error validating subject selections.' });
   }
 };
+
 // 📋 Controller: Get available electives for a student's pathway
 const getStudentElectivesForPathway = async (req, res) => {
   try {
     const { admNo } = req.params;
 
-    // Find student and populate pathway
-    const student = await Student.findOne({ admNo: admNo.toUpperCase() }).populate('pathway');
+    // 🔍 Find student scoped by school
+    const student = await Student.findOne({
+      admNo: admNo.toUpperCase(),
+      school: req.user.schoolId // ✅ scoped by school
+    }).populate('pathway');
+
     if (!student) {
       return res.status(404).json({ error: 'Student not found.' });
     }
@@ -425,13 +505,13 @@ const getStudentElectivesForPathway = async (req, res) => {
       return res.status(400).json({ error: 'Student has no pathway assigned.' });
     }
 
-    // Fetch subjects for student's pathway that are NOT compulsory (i.e. electives)
+    // 📋 Fetch non-compulsory subjects for student's pathway
     const electives = await Subject.find({
       pathway: student.pathway._id,
-      compulsory: false // Only non-compulsory subjects for selection
+      compulsory: false,
+      school: req.user.schoolId // ✅ scoped by school
     }).select('name code group lessonsPerWeek');
 
-    // Optionally, also return student info (useful for frontend)
     res.status(200).json({
       student: {
         admNo: student.admNo,
@@ -446,6 +526,7 @@ const getStudentElectivesForPathway = async (req, res) => {
     res.status(500).json({ error: 'Error fetching elective options.' });
   }
 };
+
 module.exports = {
   selectSubjectsByAdmNo,
   getSelectedSubjectsByAdmNo,
