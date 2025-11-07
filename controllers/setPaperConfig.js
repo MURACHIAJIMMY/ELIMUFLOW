@@ -1,11 +1,24 @@
 const PaperConfig = require('../models/paperConfig');
 const Subject = require('../models/subject');
 const School = require('../models/school');
+const Assessment = require('../models/assessment');
 
 // 🔐 Set paper config (generic)
 const setPaperConfig = async (req, res) => {
   try {
     const { subject, grade, term, exam, year, papers } = req.body;
+
+    const validExams = await Assessment.distinct("exam", {
+      term,
+      year: parseInt(year),
+      school: req.user.schoolId
+    });
+
+    if (!validExams.includes(exam)) {
+      return res.status(400).json({
+        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
+      });
+    }
 
     const exists = await PaperConfig.findOne({ subject, grade, term, exam, year, school: req.user.schoolId });
     if (exists) return res.status(409).json({ error: 'Paper config already exists for this subject and period.' });
@@ -22,6 +35,18 @@ const setPaperConfigByName = async (req, res) => {
   try {
     const { subjectName } = req.params;
     const { grade, term, exam, year, papers } = req.body;
+
+    const validExams = await Assessment.distinct("exam", {
+      term,
+      year: parseInt(year),
+      school: req.user.schoolId
+    });
+
+    if (!validExams.includes(exam)) {
+      return res.status(400).json({
+        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
+      });
+    }
 
     const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: req.user.schoolId });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
@@ -85,6 +110,20 @@ const getPaperConfigByName = async (req, res) => {
     const { subjectName } = req.params;
     const { grade, term, exam, year } = req.query;
 
+    if (exam && term && year) {
+      const validExams = await Assessment.distinct("exam", {
+        term,
+        year: parseInt(year),
+        school: req.user.schoolId
+      });
+
+      if (!validExams.includes(exam)) {
+        return res.status(400).json({
+          error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
+        });
+      }
+    }
+
     const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: req.user.schoolId });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
 
@@ -145,6 +184,18 @@ const updatePaperConfigByName = async (req, res) => {
 
     const { grade, term, exam, year, papers } = req.body;
 
+    const validExams = await Assessment.distinct("exam", {
+      term,
+      year: parseInt(year),
+      school: req.user.schoolId
+    });
+
+    if (!validExams.includes(exam)) {
+      return res.status(400).json({
+        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
+      });
+    }
+
     const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: req.user.schoolId });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
 
@@ -182,6 +233,20 @@ const deletePaperConfigByName = async (req, res) => {
 
     const { grade, term, exam, year } = req.query;
 
+    if (exam && term && year) {
+      const validExams = await Assessment.distinct("exam", {
+        term,
+        year: parseInt(year),
+        school: req.user.schoolId
+      });
+
+      if (!validExams.includes(exam)) {
+        return res.status(400).json({
+          error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
+        });
+      }
+    }
+
     const deleted = await PaperConfig.findOneAndDelete({
       subject: subject._id,
       grade,
@@ -191,7 +256,7 @@ const deletePaperConfigByName = async (req, res) => {
       school: req.user.schoolId
     });
 
-    if (!deleted) return res.status(404).json({ error: 'Config not found to delete.' });
+      if (!deleted) return res.status(404).json({ error: 'Config not found to delete.' });
 
     res.status(200).json({ message: 'Paper config deleted.' });
   } catch (err) {
