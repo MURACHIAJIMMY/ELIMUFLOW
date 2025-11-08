@@ -30,9 +30,13 @@ const bulkCreateClasses = async (req, res) => {
       if (!cls.name || !cls.grade || !cls.stream) {
         return res.status(400).json({ error: 'Each class must include name, grade, and stream.' });
       }
+
+      cls.grade = parseInt(cls.grade); // ✅ Coerce to Number
+
       if (!validGrades.includes(cls.grade)) {
         return res.status(400).json({ error: `Invalid grade: ${cls.grade}. Only 10, 11, 12 allowed.` });
       }
+
       cls.school = school._id;
     }
 
