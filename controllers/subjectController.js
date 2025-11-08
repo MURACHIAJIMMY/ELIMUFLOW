@@ -1,13 +1,30 @@
-// backend/controllers/subjectController.js
-const Subject = require('../models/subject');
-const Pathway = require('../models/pathway');
-const Track = require('../models/track');
-const School = require('../models/school');
+const Subject = require("../models/subject");
+const Pathway = require("../models/pathway");
+const Track = require("../models/track");
+const School = require("../models/school");
+const { subjectPools } = require("../utils/subjectPools");
 
-const { subjectPools } = require('../utils/subjectPools');
+// 🧠 Resolve school context from user, query, or body
+const resolveSchool = async (req) => {
+  const schoolId =
+    req.user?.schoolId || req.query.schoolId || req.body.schoolId;
+  const schoolCode =
+    req.user?.schoolCode || req.query.schoolCode || req.body.schoolCode;
+
+  if (!schoolId && !schoolCode) return null;
+
+  return await School.findOne({
+    ...(schoolId && { _id: schoolId }),
+    ...(schoolCode && { code: schoolCode }),
+  });
+};
+
 // 🔒 Create a single subject
 const createSubject = async (req, res) => {
   try {
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: "School not found." });
+
     const {
       name,
       code,
@@ -15,27 +32,27 @@ const createSubject = async (req, res) => {
       compulsory,
       pathwayName,
       trackCode,
-      lessonsPerWeek
+      lessonsPerWeek,
     } = req.body;
 
     const exists = await Subject.findOne({
       code: code.toUpperCase(),
-      school: req.user.schoolId // ✅ scoped by school
+      school: school._id,
     });
-    if (exists) return res.status(409).json({ error: 'Subject code already exists.' });
+    if (exists)
+      return res.status(409).json({ error: "Subject code already exists." });
 
     const pathwayDoc = await Pathway.findOne({
       name: pathwayName,
-      school: req.user.schoolId // ✅ scoped by school
+      school: school._id,
     });
-
     const trackDoc = await Track.findOne({
       code: trackCode,
-      school: req.user.schoolId // ✅ scoped by school
+      school: school._id,
     });
 
     if (!pathwayDoc || !trackDoc) {
-      return res.status(404).json({ error: 'Pathway or track not found.' });
+      return res.status(404).json({ error: "Pathway or track not found." });
     }
 
     const subject = await Subject.create({
@@ -46,15 +63,15 @@ const createSubject = async (req, res) => {
       pathway: pathwayDoc._id,
       track: trackDoc._id,
       lessonsPerWeek,
-      school: req.user.schoolId // ✅ inject school context
+      school: school._id,
     });
 
     const populated = await Subject.findById(subject._id)
-      .populate({ path: 'pathway', select: 'name' })
-      .populate({ path: 'track', select: 'name code' });
+      .populate({ path: "pathway", select: "name" })
+      .populate({ path: "track", select: "name code" });
 
     res.status(201).json({
-      message: 'Subject created.',
+      message: "Subject created.",
       subject: {
         LearningArea: populated.name,
         code: populated.code,
@@ -64,97 +81,111 @@ const createSubject = async (req, res) => {
         pathway: populated.pathway?.name || null,
         track: populated.track
           ? { name: populated.track.name, code: populated.track.code }
-          : null
-      }
+          : null,
+      },
     });
   } catch (err) {
-    console.error('[createSubject]', err);
-    res.status(500).json({ error: 'Failed to create subject.' });
+    console.error("[createSubject]", err);
+    res.status(500).json({ error: "Failed to create subject." });
   }
 };
-
 
 // 📦 Bulk create subjects
 const bulkCreateSubjects = async (req, res) => {
   try {
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: "School not found." });
+
     const rawSubjects = req.body;
     if (!Array.isArray(rawSubjects) || rawSubjects.length === 0) {
-      return res.status(400).json({ error: 'Provide an array of subject objects.' });
+      return res
+        .status(400)
+        .json({ error: "Provide an array of subject objects." });
     }
 
     const defaultPathway = await Pathway.findOne({
-      name: 'Compulsory',
-      school: req.user.schoolId // ✅ scoped by school
+      name: "Compulsory",
+      school: school._id,
     });
-
     const defaultTrack = await Track.findOne({
-      code: 'CORE',
-      school: req.user.schoolId // ✅ scoped by school
+      code: "CORE",
+      school: school._id,
     });
 
     if (!defaultPathway || !defaultTrack) {
-      return res.status(500).json({ error: 'Default pathway or track not found. Please seed them first.' });
+      return res
+        .status(500)
+        .json({
+          error: "Default pathway or track not found. Please seed them first.",
+        });
     }
 
     const resolvedSubjects = [];
 
     for (const raw of rawSubjects) {
       const pathwayDoc = raw.pathwayName
-        ? await Pathway.findOne({ name: raw.pathwayName, school: req.user.schoolId }) // ✅ scoped
+        ? await Pathway.findOne({ name: raw.pathwayName, school: school._id })
         : defaultPathway;
 
       const trackDoc = raw.trackCode
-        ? await Track.findOne({ code: raw.trackCode, school: req.user.schoolId }) // ✅ scoped
+        ? await Track.findOne({ code: raw.trackCode, school: school._id })
         : defaultTrack;
 
       if (!pathwayDoc || !trackDoc) {
-        console.warn(`Skipping subject: ${raw.name} — missing fallback pathway or track`);
+        console.warn(
+          `Skipping subject: ${raw.name} — missing fallback pathway or track`
+        );
         continue;
       }
 
       resolvedSubjects.push({
         name: raw.name,
         code: raw.code.toUpperCase(),
-        group: raw.group || 'Unclassified',
+        group: raw.group || "Unclassified",
         compulsory: raw.compulsory ?? false,
         pathway: pathwayDoc._id,
         track: trackDoc._id,
         lessonsPerWeek: raw.lessonsPerWeek || 5,
-        school: req.user.schoolId // ✅ inject school context
+        school: school._id,
       });
     }
 
     if (resolvedSubjects.length === 0) {
-      return res.status(400).json({ error: 'No valid subjects to insert.' });
+      return res.status(400).json({ error: "No valid subjects to insert." });
     }
 
     const created = await Subject.insertMany(resolvedSubjects);
 
-    const populated = await Subject.find({ _id: { $in: created.map(s => s._id) } })
-      .populate({ path: 'pathway', select: 'name' })
-      .populate({ path: 'track', select: 'name code' });
+    const populated = await Subject.find({
+      _id: { $in: created.map((s) => s._id) },
+    })
+      .populate({ path: "pathway", select: "name" })
+      .populate({ path: "track", select: "name code" });
 
-    const formatted = populated.map(sub => ({
+    const formatted = populated.map((sub) => ({
       LearningArea: sub.name,
       code: sub.code,
       group: sub.group,
       lessonsPerWeek: sub.lessonsPerWeek,
       compulsory: sub.compulsory,
       pathway: sub.pathway?.name || null,
-      track: sub.track ? { name: sub.track.name, code: sub.track.code } : null
+      track: sub.track ? { name: sub.track.name, code: sub.track.code } : null,
     }));
 
-    res.status(201).json({ message: 'Subjects created.', subjects: formatted });
+    res.status(201).json({ message: "Subjects created.", subjects: formatted });
   } catch (err) {
-    console.error('[bulkCreateSubjects]', err);
-    res.status(500).json({ error: 'Failed to create subjects.' });
+    console.error("[bulkCreateSubjects]", err);
+    res.status(500).json({ error: "Failed to create subjects." });
   }
 };
 
 // ✅ Validate subject registry
 const validateSubjectRegistry = async (req, res) => {
   try {
-    const subjects = await Subject.find({ school: req.user.schoolId }); // ✅ scoped by school
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: "School not found." });
+
+    const subjects = await Subject.find({ school: school._id });
     const duplicates = [];
 
     const seenCodes = new Set();
@@ -170,125 +201,134 @@ const validateSubjectRegistry = async (req, res) => {
 };
 
 // 📚 Get subjects by pathway and track
-
 const getSubjectsByPathwayTrack = async (req, res) => {
   try {
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: "School not found." });
+
     const { pathwayName, trackCode } = req.query;
-    const query = { school: req.user.schoolId }; // ✅ scoped by school
+    const query = { school: school._id };
 
     if (pathwayName) {
       const pathwayDoc = await Pathway.findOne({
         name: pathwayName,
-        school: req.user.schoolId // ✅ scoped by school
+        school: school._id,
       });
-      if (!pathwayDoc) return res.status(404).json({ error: 'Pathway not found.' });
+      if (!pathwayDoc)
+        return res.status(404).json({ error: "Pathway not found." });
       query.pathway = pathwayDoc._id;
     }
 
     if (trackCode) {
       const trackDoc = await Track.findOne({
         code: trackCode,
-        school: req.user.schoolId // ✅ scoped by school
+        school: school._id,
       });
-      if (!trackDoc) return res.status(404).json({ error: 'Track not found.' });
+      if (!trackDoc) return res.status(404).json({ error: "Track not found." });
       query.track = trackDoc._id;
     }
 
     const subjects = await Subject.find(query)
-      .select('name code group')
-      .populate({ path: 'pathway', select: 'name' })
-      .populate({ path: 'track', select: 'name code' });
+      .select("name code group")
+      .populate({ path: "pathway", select: "name" })
+      .populate({ path: "track", select: "name code" });
 
-    const formatted = subjects.map(sub => ({
+    const formatted = subjects.map((sub) => ({
       LearningArea: sub.name,
       code: sub.code,
       group: sub.group,
       pathway: sub.pathway?.name || null,
-      track: sub.track ? { name: sub.track.name, code: sub.track.code } : null
+      track: sub.track ? { name: sub.track.name, code: sub.track.code } : null,
     }));
 
     res.status(200).json(formatted);
   } catch (err) {
-    console.error('[getSubjectsByPathwayTrack]', err);
-    res.status(500).json({ error: 'Failed to filter subjects.' });
+    console.error("[getSubjectsByPathwayTrack]", err);
+    res.status(500).json({ error: "Failed to filter subjects." });
   }
 };
 
 // 📄 Get all subjects
 const getAllSubjects = async (req, res) => {
   try {
-    const subjects = await Subject.find({ school: req.user.schoolId }) // ✅ scoped by school
-      .select('name code group lessonsPerWeek compulsory')
-      .populate({ path: 'pathway', select: 'name' })
-      .populate({ path: 'track', select: 'name code' });
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: "School not found." });
 
-    const formatted = subjects.map(sub => ({
+    const subjects = await Subject.find({ school: school._id })
+      .select("name code group lessonsPerWeek compulsory")
+      .populate({ path: "pathway", select: "name" })
+      .populate({ path: "track", select: "name code" });
+
+    const formatted = subjects.map((sub) => ({
       LearningArea: sub.name,
       code: sub.code,
       group: sub.group,
       compulsory: sub.compulsory ?? false,
       lessonsPerWeek: sub.lessonsPerWeek ?? null,
       pathway: sub.pathway?.name || null,
-      track: sub.track ? { name: sub.track.name, code: sub.track.code } : null
+      track: sub.track ? { name: sub.track.name, code: sub.track.code } : null,
     }));
 
     res.status(200).json(formatted);
   } catch (err) {
-    console.error('[getAllSubjects]', err);
-    res.status(500).json({ error: 'Failed to fetch subjects.' });
+    console.error("[getAllSubjects]", err);
+    res.status(500).json({ error: "Failed to fetch subjects." });
   }
 };
-
 
 // 📄 Get compulsory subjects
 const getCompulsorySubjects = async (req, res) => {
   try {
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: "School not found." });
+
     const subjects = await Subject.find({
       compulsory: true,
-      school: req.user.schoolId // ✅ scoped by school
+      school: school._id,
     })
-      .select('name code group lessonsPerWeek')
-      .populate({ path: 'pathway', select: 'name' })
-      .populate({ path: 'track', select: 'name code' });
+      .select("name code group lessonsPerWeek")
+      .populate({ path: "pathway", select: "name" })
+      .populate({ path: "track", select: "name code" });
 
-    const formatted = subjects.map(sub => ({
+    const formatted = subjects.map((sub) => ({
       LearningArea: sub.name,
       code: sub.code,
       group: sub.group,
       lessonsPerWeek: sub.lessonsPerWeek,
       pathway: sub.pathway?.name || null,
-      track: sub.track ? { name: sub.track.name, code: sub.track.code } : null
+      track: sub.track ? { name: sub.track.name, code: sub.track.code } : null,
     }));
 
     res.status(200).json(formatted);
   } catch (err) {
-    console.error('[getCompulsorySubjects]', err);
-    res.status(500).json({ error: 'Failed to fetch compulsory subjects.' });
+    console.error("[getCompulsorySubjects]", err);
+    res.status(500).json({ error: "Failed to fetch compulsory subjects." });
   }
 };
-
-
 // 🔧 Update subject by name
 const updateSubjectByName = async (req, res) => {
   try {
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: "School not found." });
+
     const { subjectName } = req.params;
     const updates = req.body;
 
     const subject = await Subject.findOneAndUpdate(
-      { name: subjectName, school: req.user.schoolId }, // ✅ scoped by school
+      { name: subjectName, school: school._id },
       updates,
       { new: true }
     ).populate([
-      { path: 'pathway', select: 'name' },
-      { path: 'track', select: 'name code' }
+      { path: "pathway", select: "name" },
+      { path: "track", select: "name code" },
     ]);
 
     if (!subject) {
-      return res.status(404).json({ error: 'Subject not found.' });
+      return res.status(404).json({ error: "Subject not found." });
     }
 
     res.status(200).json({
-      message: 'Subject updated.',
+      message: "Subject updated.",
       subject: {
         LearningArea: subject.name,
         code: subject.code,
@@ -297,44 +337,45 @@ const updateSubjectByName = async (req, res) => {
         pathway: subject.pathway?.name || null,
         track: subject.track
           ? { name: subject.track.name, code: subject.track.code }
-          : null
-      }
+          : null,
+      },
     });
   } catch (err) {
-    console.error('[updateSubjectByName]', err);
-    res.status(500).json({ error: 'Failed to update subject.' });
+    console.error("[updateSubjectByName]", err);
+    res.status(500).json({ error: "Failed to update subject." });
   }
 };
 
 // 📦 Bulk update subjects
 const bulkUpdateSubjects = async (req, res) => {
   try {
-    const updates = req.body; // [{ name: 'Biology', updates: { lessonsPerWeek: 6, pathway: 'STEM' } }, ...]
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: "School not found." });
 
-    // Helper to resolve name to ObjectId scoped by school
+    const updates = req.body;
+
     const resolveRef = async (model, name) => {
-      if (!name || typeof name !== 'string') return null;
-      const doc = await model.findOne({ name, school: req.user.schoolId }); // ✅ scoped
+      if (!name || typeof name !== "string") return null;
+      const doc = await model.findOne({ name, school: school._id });
       return doc?._id || null;
     };
 
     const results = await Promise.all(
       updates.map(async ({ name, updates }) => {
-        // Resolve pathway and track if given as strings
-        if (updates.pathway && typeof updates.pathway === 'string') {
+        if (updates.pathway && typeof updates.pathway === "string") {
           updates.pathway = await resolveRef(Pathway, updates.pathway);
         }
-        if (updates.track && typeof updates.track === 'string') {
+        if (updates.track && typeof updates.track === "string") {
           updates.track = await resolveRef(Track, updates.track);
         }
 
         const subject = await Subject.findOneAndUpdate(
-          { name, school: req.user.schoolId }, // ✅ scoped by school
+          { name, school: school._id },
           updates,
           { new: true }
         ).populate([
-          { path: 'pathway', select: 'name' },
-          { path: 'track', select: 'name code' }
+          { path: "pathway", select: "name" },
+          { path: "track", select: "name code" },
         ]);
 
         return subject
@@ -348,32 +389,34 @@ const bulkUpdateSubjects = async (req, res) => {
                 pathway: subject.pathway?.name || null,
                 track: subject.track
                   ? { name: subject.track.name, code: subject.track.code }
-                  : null
-              }
+                  : null,
+              },
             }
           : { LearningArea: name, updated: false };
       })
     );
 
-    res.status(200).json({ message: 'Subjects updated.', results });
+    res.status(200).json({ message: "Subjects updated.", results });
   } catch (err) {
-    console.error('[bulkUpdateSubjects]', err);
-    res.status(500).json({ error: 'Failed to update subjects.' });
+    console.error("[bulkUpdateSubjects]", err);
+    res.status(500).json({ error: "Failed to update subjects." });
   }
 };
 
 // ❌ Delete subject by name
 const deleteSubjectByName = async (req, res) => {
   try {
-    const { name } = req.params;
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: "School not found." });
 
+    const { name } = req.params;
     if (!name) {
       return res.status(400).json({ error: "Subject name is required." });
     }
 
     const deleted = await Subject.findOneAndDelete({
       name,
-      school: req.user.schoolId // ✅ scoped by school
+      school: school._id,
     });
 
     if (!deleted) {
@@ -385,12 +428,12 @@ const deleteSubjectByName = async (req, res) => {
       deleted: {
         LearningArea: deleted.name,
         code: deleted.code,
-        group: deleted.group
-      }
+        group: deleted.group,
+      },
     });
   } catch (err) {
-    console.error('[deleteSubjectByName]', err);
-    res.status(500).json({ error: 'Failed to delete subject.' });
+    console.error("[deleteSubjectByName]", err);
+    res.status(500).json({ error: "Failed to delete subject." });
   }
 };
 
@@ -403,5 +446,5 @@ module.exports = {
   getCompulsorySubjects,
   updateSubjectByName,
   bulkUpdateSubjects,
-  deleteSubjectByName
+  deleteSubjectByName,
 };

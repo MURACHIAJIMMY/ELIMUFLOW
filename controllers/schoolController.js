@@ -25,15 +25,31 @@ const createSchool = async (req, res) => {
 };
 
 // 🛠️ Update school by code (admin only)
+// 🧠 Resolve school context from user, query, or body
+const resolveSchool = async (req) => {
+  const schoolId = req.user?.schoolId || req.query.schoolId || req.body.schoolId;
+  const schoolCode = req.user?.schoolCode || req.query.schoolCode || req.body.schoolCode || req.params.code;
+
+  if (!schoolId && !schoolCode) return null;
+
+  return await School.findOne({
+    ...(schoolId && { _id: schoolId }),
+    ...(schoolCode && { code: schoolCode })
+  });
+};
+
+// 🔧 Update school by code or context
 const updateSchool = async (req, res) => {
   try {
-    const { code } = req.params;
     const updates = req.body;
+    const school = await resolveSchool(req);
 
-    const school = await School.findOneAndUpdate({ code }, updates, { new: true });
     if (!school) {
       return res.status(404).json({ error: 'School not found' });
     }
+
+    Object.assign(school, updates);
+    await school.save();
 
     res.status(200).json({ message: 'School updated successfully', school });
   } catch (err) {

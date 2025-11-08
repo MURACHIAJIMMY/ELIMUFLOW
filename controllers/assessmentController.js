@@ -1,67 +1,109 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 // Models
-const Student = require('../models/student');
-const Subject = require('../models/subject');
-const Class = require('../models/class');
-const Assessment = require('../models/assessment');
-const PaperConfig = require('../models/paperConfig');
-const School = require('../models/school');
-const Pathway = require('../models/pathway');
+const Student = require("../models/student");
+const Subject = require("../models/subject");
+const Class = require("../models/class");
+const Assessment = require("../models/assessment");
+const PaperConfig = require("../models/paperConfig");
+const School = require("../models/school");
+const Pathway = require("../models/pathway");
 const archiver = require("archiver");
 // Utilities
-const { computeSubjectScore } = require('../utils/computeSubjectScore');
-const { getGradeRemark } = require('../utils/scoreUtils');
-const autoCommentByGrade = require('../utils/autoComment');
-const { extractLevel } = require('../utils/level');
-const { getPreviousExam } = require('../utils/examUtils');
-const resolveClassAndSubject = require('../utils/resolveRefs');
-const generatePDF = require('../utils/generatePDF');
-const generateQRCode = require('../utils/generateQRCode');
+const { computeSubjectScore } = require("../utils/computeSubjectScore");
+const { getGradeRemark } = require("../utils/scoreUtils");
+const autoCommentByGrade = require("../utils/autoComment");
+const { extractLevel } = require("../utils/level");
+const { getPreviousExam } = require("../utils/examUtils");
+const resolveClassAndSubject = require("../utils/resolveRefs");
+const generatePDF = require("../utils/generatePDF");
+const generateQRCode = require("../utils/generateQRCode");
 const generateBroadsheetPDF = require("../utils/generateBroadsheetPDF");
 const generateGradeDistributionPDF = require("../utils/generateGradeDistributionPDF");
-const generateRankingPDF = require('../utils/generateRankingPDF');
-const generateSubjectRankingPDF = require('../utils/generateSubjectRankingPDF');
+const generateRankingPDF = require("../utils/generateRankingPDF");
+const generateSubjectRankingPDF = require("../utils/generateSubjectRankingPDF");
+// 📝 Bulk enter marks for multiple students
+// 🧠 Resolve school context from user, query, or body
+const resolveSchool = async (req) => {
+  const schoolId =
+    req.user?.schoolId || req.body.schoolId || req.query.schoolId;
+  const schoolCode =
+    req.user?.schoolCode || req.body.schoolCode || req.query.schoolCode;
+
+  if (!schoolId && !schoolCode) return null;
+
+  return await School.findOne({
+    ...(schoolId && { _id: schoolId }),
+    ...(schoolCode && { code: schoolCode }),
+  });
+};
+
 // 📝 Bulk enter marks for multiple students
 const enterMarks = async (req, res) => {
   try {
-    let { classId, className, subjectId, subjectName, term, exam, year, marks, allowUpdate = false } = req.body;
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: "School not found." });
 
-    if ((!classId && !className) || (!subjectId && !subjectName) || !term || !exam || !year || !Array.isArray(marks)) {
-      return res.status(400).json({ error: 'Missing required fields or invalid marks format' });
-    }
-
-    // 🔍 Validate exam name against existing records
-    const validExams = await Assessment.distinct("exam", {
-      term,
-      year: parseInt(year),
-      school: req.user.schoolId
-    });
-
-    if (!validExams.includes(exam)) {
-      return res.status(400).json({
-        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
-      });
-    }
-
-    const { resolvedClassId, resolvedSubjectId } = await resolveClassAndSubject({
+    let {
       classId,
       className,
       subjectId,
       subjectName,
-      schoolId: req.user.schoolId
+      term,
+      exam,
+      year,
+      marks,
+      allowUpdate = false,
+    } = req.body;
+
+    if (
+      (!classId && !className) ||
+      (!subjectId && !subjectName) ||
+      !term ||
+      !exam ||
+      !year ||
+      !Array.isArray(marks)
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Missing required fields or invalid marks format" });
+    }
+
+    const validExams = await Assessment.distinct("exam", {
+      term,
+      year: parseInt(year),
+      school: school._id,
     });
+
+    if (!validExams.includes(exam)) {
+      return res.status(400).json({
+        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(
+          ", "
+        )}`,
+      });
+    }
+
+    const { resolvedClassId, resolvedSubjectId } = await resolveClassAndSubject(
+      {
+        classId,
+        className,
+        subjectId,
+        subjectName,
+        schoolId: school._id,
+      }
+    );
 
     const sampleStudent = await Student.findOne({
       class: resolvedClassId,
-      school: req.user.schoolId
+      school: school._id,
     });
-    if (!sampleStudent) return res.status(404).json({ error: 'No students found in class' });
+    if (!sampleStudent)
+      return res.status(404).json({ error: "No students found in class" });
 
     const subject = await Subject.findOne({
       _id: resolvedSubjectId,
-      school: req.user.schoolId
-    }).select('name code');
-    if (!subject) return res.status(404).json({ error: 'Subject not found' });
+      school: school._id,
+    }).select("name code");
+    if (!subject) return res.status(404).json({ error: "Subject not found" });
 
     const config = await PaperConfig.findOne({
       subject: resolvedSubjectId,
@@ -69,15 +111,17 @@ const enterMarks = async (req, res) => {
       term,
       exam,
       year: parseInt(year),
-      school: req.user.schoolId
+      school: school._id,
     });
 
     if (!config) {
-      return res.status(400).json({ error: 'Paper configuration not found for this setup' });
+      return res
+        .status(400)
+        .json({ error: "Paper configuration not found for this setup" });
     }
 
     const totalMap = {};
-    config.papers.forEach(p => {
+    config.papers.forEach((p) => {
       totalMap[p.paperNo] = Number(p.total);
     });
 
@@ -89,16 +133,16 @@ const enterMarks = async (req, res) => {
       const { admNo, papers } = entry;
 
       if (!admNo || !Array.isArray(papers)) {
-        errors.push({ admNo, message: 'Missing papers or admNo' });
+        errors.push({ admNo, message: "Missing papers or admNo" });
         continue;
       }
 
       const student = await Student.findOne({
         admNo,
-        school: req.user.schoolId
-      }).select('name _id');
+        school: school._id,
+      }).select("name _id");
       if (!student) {
-        errors.push({ admNo, message: 'Student not found' });
+        errors.push({ admNo, message: "Student not found" });
         continue;
       }
 
@@ -109,7 +153,7 @@ const enterMarks = async (req, res) => {
         term,
         exam,
         year: parseInt(year),
-        school: req.user.schoolId
+        school: school._id,
       };
 
       const existing = await Assessment.findOne(filter);
@@ -124,15 +168,18 @@ const enterMarks = async (req, res) => {
       for (const configPaper of config.papers) {
         const paperNo = configPaper.paperNo;
         const max = totalMap[paperNo];
-        const entryPaper = papers.find(p => Number(p.paperNo) === paperNo);
+        const entryPaper = papers.find((p) => Number(p.paperNo) === paperNo);
 
         let rawScore = entryPaper?.score;
-        if (rawScore === undefined || rawScore === null || rawScore === '') {
+        if (rawScore === undefined || rawScore === null || rawScore === "") {
           rawScore = -1;
         }
 
         const score = Number(rawScore);
-        const isValid = !isNaN(score) && typeof score === 'number' && (score === -1 || (score >= 0 && score <= max));
+        const isValid =
+          !isNaN(score) &&
+          typeof score === "number" &&
+          (score === -1 || (score >= 0 && score <= max));
 
         if (!isValid) {
           validationErrors.push({
@@ -140,7 +187,7 @@ const enterMarks = async (req, res) => {
             paperNo,
             score: rawScore,
             max,
-            message: `Invalid score for paper ${paperNo}. Must be between 0 and ${max}, or -1 for absent.`
+            message: `Invalid score for paper ${paperNo}. Must be between 0 and ${max}, or -1 for absent.`,
           });
           hasError = true;
           continue;
@@ -159,14 +206,15 @@ const enterMarks = async (req, res) => {
       if (enrichedPapers.length === 0 || hasError) {
         actions.push({
           admNo,
-          action: 'skipped',
-          reason: 'Invalid or missing scores'
+          action: "skipped",
+          reason: "Invalid or missing scores",
         });
         errors.push(...validationErrors);
         continue;
       }
 
-      const percentage = totalOutOf > 0 ? ((totalScore / totalOutOf) * 100).toFixed(2) : '0.00';
+      const percentage =
+        totalOutOf > 0 ? ((totalScore / totalOutOf) * 100).toFixed(2) : "0.00";
       const computedScore = computeSubjectScore(enrichedPapers, subject.name);
       const { grade, remark } = getGradeRemark(computedScore);
       const autoComment = autoCommentByGrade[grade] || remark;
@@ -187,7 +235,7 @@ const enterMarks = async (req, res) => {
         comment: autoComment,
         absentCount,
         recordedBy: req.user?._id,
-        school: req.user.schoolId
+        school: school._id,
       };
 
       try {
@@ -196,26 +244,26 @@ const enterMarks = async (req, res) => {
             await Assessment.findByIdAndUpdate(existing._id, payload);
             actions.push({
               admNo,
-              action: 'updated',
+              action: "updated",
               score: Math.round(computedScore),
               grade,
-              remark: autoComment
+              remark: autoComment,
             });
           } else {
             actions.push({
               admNo,
-              action: 'skipped',
-              reason: 'Existing entry — update not allowed'
+              action: "skipped",
+              reason: "Existing entry — update not allowed",
             });
           }
         } else {
           await Assessment.create(payload);
           actions.push({
             admNo,
-            action: 'inserted',
+            action: "inserted",
             score: Math.round(computedScore),
             grade,
-            remark: autoComment
+            remark: autoComment,
           });
         }
 
@@ -224,20 +272,20 @@ const enterMarks = async (req, res) => {
           name: student.name,
           score: Math.round(computedScore),
           grade,
-          remark: autoComment
+          remark: autoComment,
         });
       } catch (err) {
         errors.push({
           admNo,
-          message: 'Error saving assessment',
-          error: err.message
+          message: "Error saving assessment",
+          error: err.message,
         });
       }
     }
 
     res.status(200).json({
-      message: 'Mark entry completed',
-      className: className || 'Resolved',
+      message: "Mark entry completed",
+      className: className || "Resolved",
       LearningArea: subject.name,
       code: subject.code,
       exam,
@@ -246,40 +294,51 @@ const enterMarks = async (req, res) => {
       count: results.length,
       results,
       actions,
-      errors
+      errors,
     });
   } catch (err) {
-    console.error('[UnifiedEnterMarks]', err);
-    res.status(500).json({ error: 'Server error during mark entry' });
+    console.error("[UnifiedEnterMarks]", err);
+    res.status(500).json({ error: "Server error during mark entry" });
   }
 };
 
 // 📝 Update marks for a single/multiple student
 const updateMarks = async (req, res) => {
   try {
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: "School not found." });
+
     const { subjectName, term, exam, year, updates } = req.body;
 
-    if (!subjectName || !term || !exam || !year || !Array.isArray(updates) || updates.length === 0) {
-      return res.status(400).json({ error: 'Missing required fields or invalid updates format' });
+    if (
+      !subjectName ||
+      !term ||
+      !exam ||
+      !year ||
+      !Array.isArray(updates) ||
+      updates.length === 0
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Missing required fields or invalid updates format" });
     }
-
-    // 🔍 Validate subject
     const subject = await Subject.findOne({
       name: subjectName,
-      school: req.user.schoolId
+      school: school._id,
     });
-    if (!subject) return res.status(404).json({ error: 'Subject not found' });
+    if (!subject) return res.status(404).json({ error: "Subject not found" });
 
-    // 🔍 Validate exam name against existing records
     const validExams = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
-      school: req.user.schoolId
+      school: school._id,
     });
 
     if (!validExams.includes(exam)) {
       return res.status(400).json({
-        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
+        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(
+          ", "
+        )}`,
       });
     }
 
@@ -291,16 +350,13 @@ const updateMarks = async (req, res) => {
       const { admNo, papers } = entry;
 
       if (!admNo || !Array.isArray(papers)) {
-        errors.push({ admNo, message: 'Missing admNo or papers array' });
+        errors.push({ admNo, message: "Missing admNo or papers array" });
         continue;
       }
 
-      const student = await Student.findOne({
-        admNo,
-        school: req.user.schoolId
-      });
+      const student = await Student.findOne({ admNo, school: school._id });
       if (!student) {
-        errors.push({ admNo, message: 'Student not found' });
+        errors.push({ admNo, message: "Student not found" });
         continue;
       }
 
@@ -310,11 +366,15 @@ const updateMarks = async (req, res) => {
         term,
         exam,
         year: parseInt(year),
-        school: req.user.schoolId
+        school: school._id,
       });
 
       if (!assessment) {
-        actions.push({ admNo, action: 'skipped', reason: 'Assessment not found' });
+        actions.push({
+          admNo,
+          action: "skipped",
+          reason: "Assessment not found",
+        });
         continue;
       }
 
@@ -324,16 +384,20 @@ const updateMarks = async (req, res) => {
         term,
         exam,
         year: parseInt(year),
-        school: req.user.schoolId
+        school: school._id,
       });
 
       if (!config) {
-        actions.push({ admNo, action: 'skipped', reason: 'PaperConfig not found' });
+        actions.push({
+          admNo,
+          action: "skipped",
+          reason: "PaperConfig not found",
+        });
         continue;
       }
 
       const totalMap = {};
-      config.papers.forEach(p => {
+      config.papers.forEach((p) => {
         totalMap[p.paperNo] = Number(p.total);
       });
 
@@ -347,15 +411,18 @@ const updateMarks = async (req, res) => {
       for (const configPaper of config.papers) {
         const paperNo = configPaper.paperNo;
         const max = totalMap[paperNo];
-        const entryPaper = papers.find(p => Number(p.paperNo) === paperNo);
+        const entryPaper = papers.find((p) => Number(p.paperNo) === paperNo);
 
         let rawScore = entryPaper?.score;
-        if (rawScore === undefined || rawScore === null || rawScore === '') {
+        if (rawScore === undefined || rawScore === null || rawScore === "") {
           rawScore = -1;
         }
 
         const score = Number(rawScore);
-        const isValid = !isNaN(score) && typeof score === 'number' && (score === -1 || (score >= 0 && score <= max));
+        const isValid =
+          !isNaN(score) &&
+          typeof score === "number" &&
+          (score === -1 || (score >= 0 && score <= max));
 
         if (!isValid) {
           validationErrors.push({
@@ -363,7 +430,7 @@ const updateMarks = async (req, res) => {
             paperNo,
             score: rawScore,
             max,
-            message: `Invalid score for paper ${paperNo}. Must be between 0 and ${max}, or -1 for absent.`
+            message: `Invalid score for paper ${paperNo}. Must be between 0 and ${max}, or -1 for absent.`,
           });
           hasError = true;
           continue;
@@ -380,12 +447,17 @@ const updateMarks = async (req, res) => {
       }
 
       if (enrichedPapers.length === 0 || hasError) {
-        actions.push({ admNo, action: 'skipped', reason: 'Invalid or missing scores' });
+        actions.push({
+          admNo,
+          action: "skipped",
+          reason: "Invalid or missing scores",
+        });
         errors.push(...validationErrors);
         continue;
       }
 
-      const percentage = totalOutOf > 0 ? ((totalScore / totalOutOf) * 100).toFixed(2) : '0.00';
+      const percentage =
+        totalOutOf > 0 ? ((totalScore / totalOutOf) * 100).toFixed(2) : "0.00";
       const computedScore = computeSubjectScore(enrichedPapers, subject.name);
       const { grade, remark } = getGradeRemark(computedScore);
       const autoComment = autoCommentByGrade[grade] || remark;
@@ -399,7 +471,7 @@ const updateMarks = async (req, res) => {
           computedScore: +computedScore.toFixed(2),
           grade,
           comment: autoComment,
-          absentCount
+          absentCount,
         });
 
         results.push({
@@ -407,27 +479,27 @@ const updateMarks = async (req, res) => {
           name: student.name,
           score: Math.round(computedScore),
           grade,
-          remark: autoComment
+          remark: autoComment,
         });
 
         actions.push({
           admNo,
-          action: 'updated',
+          action: "updated",
           score: Math.round(computedScore),
           grade,
-          remark: autoComment
+          remark: autoComment,
         });
       } catch (err) {
         errors.push({
           admNo,
-          message: 'Error updating assessment',
-          error: err.message
+          message: "Error updating assessment",
+          error: err.message,
         });
       }
     }
 
     res.status(200).json({
-      message: 'Bulk mark update completed',
+      message: "Bulk mark update completed",
       subject: subject.name,
       term,
       exam,
@@ -435,11 +507,11 @@ const updateMarks = async (req, res) => {
       count: results.length,
       results,
       actions,
-      errors
+      errors,
     });
   } catch (err) {
-    console.error('[BulkUpdateMarks]', err);
-    res.status(500).json({ error: 'Server error during mark update' });
+    console.error("[BulkUpdateMarks]", err);
+    res.status(500).json({ error: "Server error during mark update" });
   }
 };
 
@@ -449,64 +521,72 @@ const generateReportForm = async (req, res) => {
     const { admNo, className, term, year, exam, format } = req.query;
 
     if (!term || !year || !exam) {
-      return res.status(400).json({
-        error: "Missing required parameters: term, year, and exam must be specified",
-      });
+      return res
+        .status(400)
+        .json({
+          error:
+            "Missing required parameters: term, year, and exam must be specified",
+        });
     }
 
     if (!admNo && !className) {
-      return res.status(400).json({
-        error: "Provide either admNo for single report or className for bulk report",
-      });
+      return res
+        .status(400)
+        .json({
+          error:
+            "Provide either admNo for single report or className for bulk report",
+        });
     }
 
-    const school = await School.findOne({
-      _id: req.user.schoolId,
-      code: req.user.schoolCode
-    });
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: "School not found" });
 
     const metadata = {
-      schoolName: school?.name || "Unknown School",
-      schoolLogo: school?.logo || "https://elimu-assets.s3.amazonaws.com/logo.png",
-      schoolLocation: school?.location || "N/A",
-      schoolContact: school?.contact || "N/A",
-      schoolEmail: school?.email || "N/A",
-      schoolMotto: school?.motto || "Empowering Learners",
+      schoolName: school.name || "Unknown School",
+      schoolLogo:
+        school.logo || "https://elimu-assets.s3.amazonaws.com/logo.png",
+      schoolLocation: school.location || "N/A",
+      schoolContact: school.contact || "N/A",
+      schoolEmail: school.email || "N/A",
+      schoolMotto: school.motto || "Empowering Learners",
       term,
       year,
       examType: exam,
     };
 
     const generateQRUrl = (admNo) =>
-      `https://elimu.ke/verify?admNo=${admNo}&term=${encodeURIComponent(term)}&year=${year}&exam=${encodeURIComponent(exam)}`;
+      `https://elimu.ke/verify?admNo=${admNo}&term=${encodeURIComponent(
+        term
+      )}&year=${year}&exam=${encodeURIComponent(exam)}`;
 
-    // 🔍 Dynamically fetch all exams used in this term/year/school
     const examScope = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
-      school: req.user.schoolId
+      school: school._id,
     });
 
     const buildMultiGradeSummary = (admNo, groupedScores) => {
       const summary = [];
       const academicTerm = term;
-      const gradeLevels = ['10', '11', '12'];
+      const gradeLevels = ["10", "11", "12"];
 
       gradeLevels.forEach((grade) => {
         const termMeans = {};
         const overallTerms = [];
-
         const termScores = [];
 
-        Object.entries(groupedScores[admNo] || {}).forEach(([subject, termMap]) => {
-          examScope.forEach((examName) => {
-            const key = `${grade}-${academicTerm}-${examName}`;
-            if (termMap[key] >= 0) termScores.push(termMap[key]);
-          });
-        });
+        Object.entries(groupedScores[admNo] || {}).forEach(
+          ([subject, termMap]) => {
+            examScope.forEach((examName) => {
+              const key = `${grade}-${academicTerm}-${examName}`;
+              if (termMap[key] >= 0) termScores.push(termMap[key]);
+            });
+          }
+        );
 
         if (termScores.length) {
-          const mean = termScores.reduce((a, b) => a + b, 0) / termScores.length;
+          const mean =
+            termScores.reduce((a, b) => a + b, 0) / termScores.length;
           const { grade: g } = getGradeRemark(mean);
           termMeans[academicTerm] = `${Math.round(mean)} / ${g}`;
           overallTerms.push(mean);
@@ -515,18 +595,19 @@ const generateReportForm = async (req, res) => {
         }
 
         if (overallTerms.length > 0) {
-          const overallMean = overallTerms.reduce((a, b) => a + b, 0) / overallTerms.length;
+          const overallMean =
+            overallTerms.reduce((a, b) => a + b, 0) / overallTerms.length;
           const { grade: g } = getGradeRemark(overallMean);
           const level = extractLevel(g);
-          termMeans['Overall'] = `${Math.round(overallMean)} / ${g} / ${level}`;
+          termMeans["Overall"] = `${Math.round(overallMean)} / ${g} / ${level}`;
         } else {
-          termMeans['Overall'] = `- / - / -`;
+          termMeans["Overall"] = `- / - / -`;
         }
 
         summary.push({
           grade,
           [academicTerm]: termMeans[academicTerm],
-          overall: termMeans['Overall'],
+          overall: termMeans["Overall"],
         });
       });
 
@@ -539,7 +620,8 @@ const generateReportForm = async (req, res) => {
         const admNo = a.student.admNo;
         const subject = a.subject?.name || "Unknown Subject";
         const examType = a.exam;
-        const grade = String(a.student.class.name).match(/\d+/)?.[0] || "Unknown";
+        const grade =
+          String(a.student.class.name).match(/\d+/)?.[0] || "Unknown";
         const academicTerm = term;
         const key = `${grade}-${academicTerm}-${examType}`;
         const score = computeSubjectScore(a.papers, subject);
@@ -558,16 +640,26 @@ const generateReportForm = async (req, res) => {
           let totalScore = 0;
 
           Object.entries(subjectMap).forEach(([subject, termScores]) => {
-            const values = examScope.map((t) => termScores[t]).filter((v) => typeof v === 'number');
-            const avgRaw = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+            const values = examScope
+              .map((t) => termScores[t])
+              .filter((v) => typeof v === "number");
+            const avgRaw = values.length
+              ? values.reduce((a, b) => a + b, 0) / values.length
+              : null;
             const avg = avgRaw !== null ? Math.round(avgRaw) : null;
-            const { grade, remark } = avgRaw !== null ? getGradeRemark(avgRaw) : { grade: null, remark: "Not Assessed" };
+            const { grade, remark } =
+              avgRaw !== null
+                ? getGradeRemark(avgRaw)
+                : { grade: null, remark: "Not Assessed" };
             const level = extractLevel(grade);
 
             scores.push({
               learningArea: subject,
               exams: Object.fromEntries(
-                examScope.map(e => [e, termScores[e] !== undefined ? Math.round(termScores[e]) : '-'])
+                examScope.map((e) => [
+                  e,
+                  termScores[e] !== undefined ? Math.round(termScores[e]) : "-",
+                ])
               ),
               total: avg,
               grade,
@@ -581,7 +673,10 @@ const generateReportForm = async (req, res) => {
           const assessedCount = scores.length;
           const meanRaw = assessedCount > 0 ? totalScore / assessedCount : null;
           const meanScore = meanRaw !== null ? Math.round(meanRaw) : null;
-          const { grade, remark } = meanRaw !== null ? getGradeRemark(meanRaw) : { grade: null, remark: "Not Assessed" };
+          const { grade, remark } =
+            meanRaw !== null
+              ? getGradeRemark(meanRaw)
+              : { grade: null, remark: "Not Assessed" };
           const level = extractLevel(grade);
           const autoComment = autoCommentByGrade[grade] || "Not Assessed";
           const qrCodeUrl = await generateQRCode(generateQRUrl(admNo));
@@ -619,7 +714,7 @@ const generateReportForm = async (req, res) => {
     };
 
     if (admNo) {
-      const student = await Student.findOne({ admNo, school: req.user.schoolId })
+      const student = await Student.findOne({ admNo, school: school._id })
         .populate("class", "name")
         .populate("pathway", "name")
         .select("admNo name class pathway");
@@ -627,7 +722,10 @@ const generateReportForm = async (req, res) => {
       if (!student) return res.status(404).json({ error: "Student not found" });
 
       const classId = student.class?._id || student.class;
-      const students = await Student.find({ class: classId, school: req.user.schoolId })
+      const students = await Student.find({
+        class: classId,
+        school: school._id,
+      })
         .populate("pathway", "name")
         .select("admNo name pathway");
 
@@ -636,19 +734,27 @@ const generateReportForm = async (req, res) => {
         exam: { $in: examScope },
         term,
         year: parseInt(year),
-        school: req.user.schoolId
+        school: school._id,
       })
         .populate(populateStudentWithClass)
         .populate("subject", "name");
 
-      const reportForms = await buildReportForms(students, assessments, student.class.name);
+      const reportForms = await buildReportForms(
+        students,
+        assessments,
+        student.class.name
+      );
       const report = reportForms.find((r) => r.admNo === admNo);
-      if (!report) return res.status(404).json({ error: "Report not found for student" });
+      if (!report)
+        return res.status(404).json({ error: "Report not found for student" });
 
       if (format === "pdf") {
         const pdfBuffer = await generatePDF([report], metadata);
         res.setHeader("Content-Type", "application/pdf");
-        res.setHeader("Content-Disposition", `attachment; filename="${admNo}_reportform.pdf"`);
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${admNo}_reportform.pdf"`
+        );
         return res.send(pdfBuffer);
       }
 
@@ -656,33 +762,51 @@ const generateReportForm = async (req, res) => {
     }
 
     if (className) {
-      const classDoc = await Class.findOne({ name: new RegExp(`^${className}$`, "i"), school: req.user.schoolId });
+      const classDoc = await Class.findOne({
+        name: new RegExp(`^${className}$`, "i"),
+        school: school._id,
+      });
       if (!classDoc) return res.status(404).json({ error: "Class not found" });
 
-      const students = await Student.find({ class: classDoc._id, school: req.user.schoolId })
+      const students = await Student.find({
+        class: classDoc._id,
+        school: school._id,
+      })
         .populate("pathway", "name")
         .select("admNo name pathway");
 
       const assessments = await Assessment.find({
         class: classDoc._id,
-                exam: { $in: examScope },
+        exam: { $in: examScope },
         term,
         year: parseInt(year),
-        school: req.user.schoolId
+        school: school._id,
       })
         .populate(populateStudentWithClass)
         .populate("subject", "name");
 
-      const reportForms = await buildReportForms(students, assessments, className);
+      const reportForms = await buildReportForms(
+        students,
+        assessments,
+        className
+      );
 
       if (format === "pdf") {
-        const pdfBuffer = await generatePDF(reportForms, { ...metadata, className });
+        const pdfBuffer = await generatePDF(reportForms, {
+          ...metadata,
+          className,
+        });
         res.setHeader("Content-Type", "application/pdf");
-        res.setHeader("Content-Disposition", `attachment; filename="${className}_reportforms.pdf"`);
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${className}_reportforms.pdf"`
+        );
         return res.send(pdfBuffer);
       }
 
-      return res.status(200).json({ metadata: { ...metadata, className }, reportForms });
+      return res
+        .status(200)
+        .json({ metadata: { ...metadata, className }, reportForms });
     }
 
     return res.status(400).json({ error: "Provide either admNo or className" });
@@ -697,40 +821,47 @@ const generateBroadsheetUnified = async (req, res) => {
   try {
     const { className, gradeName, term, exam, year, pathway } = req.query;
     const format = req.query.format || "pdf";
-    const { role, name, schoolCode } = req.user || {};
+    const { role, name } = req.user || {};
 
     const normalizedPathway = (pathway || "").trim().toLowerCase();
-    const validPathways = ['stem', 'arts and sport science', 'social sciences'];
+    const validPathways = ["stem", "arts and sport science", "social sciences"];
     const isGeneral = normalizedPathway === "general";
 
-    console.log(`[BroadsheetAccess] ${role ?? "admin"} ${name ?? "unknown"} requested '${normalizedPathway}' broadsheet for term '${term}', exam '${exam}', year '${year}'`);
+    console.log(
+      `[BroadsheetAccess] ${role ?? "admin"} ${
+        name ?? "unknown"
+      } requested '${normalizedPathway}' broadsheet for term '${term}', exam '${exam}', year '${year}'`
+    );
 
     if (!term || !exam || !year || !pathway) {
-      return res.status(400).json({ error: "Missing required parameters: term, exam, year, and pathway are required" });
+      return res
+        .status(400)
+        .json({
+          error:
+            "Missing required parameters: term, exam, year, and pathway are required",
+        });
     }
 
     if (!validPathways.includes(normalizedPathway) && !isGeneral) {
       return res.status(400).json({ error: `Invalid pathway '${pathway}'` });
     }
 
-    const school = await School.findOne({
-      _id: req.user.schoolId,
-      code: schoolCode
-    });
+    const school = await resolveSchool(req);
     if (!school) {
-      return res.status(404).json({ error: `School with code '${schoolCode}' not found` });
+      return res.status(404).json({ error: "School not found" });
     }
 
-    // 🔍 Validate exam name dynamically
     const validExams = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
-      school: req.user.schoolId
+      school: school._id,
     });
 
     if (!validExams.includes(exam)) {
       return res.status(400).json({
-        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
+        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(
+          ", "
+        )}`,
       });
     }
 
@@ -739,70 +870,84 @@ const generateBroadsheetUnified = async (req, res) => {
     if (className) {
       const classDoc = await Class.findOne({
         name: new RegExp(`^${className}$`, "i"),
-        school: req.user.schoolId
+        school: school._id,
       }).select("_id name");
 
       if (!classDoc) {
-        return res.status(404).json({ error: `Class '${className}' not found` });
+        return res
+          .status(404)
+          .json({ error: `Class '${className}' not found` });
       }
       classDocs = [classDoc];
     } else if (gradeName) {
       const numericGrade = parseInt(gradeName.replace(/\D/g, ""));
       if (isNaN(numericGrade)) {
-        return res.status(400).json({ error: `Invalid grade name '${gradeName}'` });
+        return res
+          .status(400)
+          .json({ error: `Invalid grade name '${gradeName}'` });
       }
       classDocs = await Class.find({
         grade: numericGrade,
-        school: req.user.schoolId
+        school: school._id,
       }).select("_id name");
 
       if (!classDocs.length) {
-        return res.status(404).json({ error: `No classes found for grade '${numericGrade}'` });
+        return res
+          .status(404)
+          .json({ error: `No classes found for grade '${numericGrade}'` });
       }
     } else {
-      return res.status(400).json({ error: "Provide either className or gradeName" });
+      return res
+        .status(400)
+        .json({ error: "Provide either className or gradeName" });
     }
 
-    const classIds = classDocs.map(c => c._id);
-    const classMap = Object.fromEntries(classDocs.map(c => [c._id.toString(), c.name]));
+    const classIds = classDocs.map((c) => c._id);
+    const classMap = Object.fromEntries(
+      classDocs.map((c) => [c._id.toString(), c.name])
+    );
 
-    const allSubjects = await Subject.find({ school: req.user.schoolId })
+    const allSubjects = await Subject.find({ school: school._id })
       .select("name _id group code shortName pathway")
       .populate("pathway", "name")
       .sort({ code: 1 });
 
     const pathwaySubjects = allSubjects
-      .filter(s => s.pathway?.name?.toLowerCase() === normalizedPathway)
-      .map(s => s.name);
+      .filter((s) => s.pathway?.name?.toLowerCase() === normalizedPathway)
+      .map((s) => s.name);
 
     const compulsorySubjects = allSubjects
-      .filter(s => s.group === "Compulsory")
-      .map(s => s.name);
+      .filter((s) => s.group === "Compulsory")
+      .map((s) => s.name);
 
     const students = await Student.find({
       class: { $in: classIds },
-      school: req.user.schoolId
+      school: school._id,
     })
       .select("admNo name class selectedSubjects grade")
       .sort({ admNo: 1 });
 
     const filteredStudents = isGeneral
       ? students
-      : students.filter(student =>
-          student.selectedSubjects?.some(subjectId => {
-            const subject = allSubjects.find(s => s._id.equals(subjectId));
+      : students.filter((student) =>
+          student.selectedSubjects?.some((subjectId) => {
+            const subject = allSubjects.find((s) => s._id.equals(subjectId));
             return subject?.pathway?.name?.toLowerCase() === normalizedPathway;
           })
         );
 
     const selectedSubjectsSet = new Set(
       isGeneral
-        ? students.flatMap(s => s.selectedSubjects?.map(id => id.toString()) || [])
+        ? students.flatMap(
+            (s) => s.selectedSubjects?.map((id) => id.toString()) || []
+          )
         : [...compulsorySubjects, ...pathwaySubjects]
     );
 
-    const selectedSubjects = allSubjects.filter(s =>
-      selectedSubjectsSet.has(s._id.toString()) || selectedSubjectsSet.has(s.name)
+    const selectedSubjects = allSubjects.filter(
+      (s) =>
+        selectedSubjectsSet.has(s._id.toString()) ||
+        selectedSubjectsSet.has(s.name)
     );
 
     const assessments = await Assessment.find({
@@ -810,7 +955,7 @@ const generateBroadsheetUnified = async (req, res) => {
       term,
       exam,
       year: parseInt(year),
-      school: req.user.schoolId
+      school: school._id,
     })
       .populate("student", "admNo name class")
       .populate("subject", "name");
@@ -822,8 +967,8 @@ const generateBroadsheetUnified = async (req, res) => {
 
     const getStudentPathway = (student) => {
       const pathwayNames = new Set();
-      student.selectedSubjects?.forEach(subjectId => {
-        const subject = allSubjects.find(s => s._id.equals(subjectId));
+      student.selectedSubjects?.forEach((subjectId) => {
+        const subject = allSubjects.find((s) => s._id.equals(subjectId));
         const isCompulsory = subject?.group === "Compulsory";
         if (!isCompulsory && subject?.pathway?.name) {
           pathwayNames.add(subject.pathway.name);
@@ -834,13 +979,14 @@ const generateBroadsheetUnified = async (req, res) => {
 
     let broadsheet = [];
 
-    filteredStudents.forEach(student => {
-      selectedSubjects.forEach(subject => {
+    filteredStudents.forEach((student) => {
+      selectedSubjects.forEach((subject) => {
         const isSelected = student.selectedSubjects?.includes(subject._id);
         if (isSelected) {
           const assessment = assessments.find(
-            a => a.student?.admNo === student.admNo &&
-                 a.subject?.name === subject.name
+            (a) =>
+              a.student?.admNo === student.admNo &&
+              a.subject?.name === subject.name
           );
 
           const score = assessment
@@ -849,7 +995,7 @@ const generateBroadsheetUnified = async (req, res) => {
 
           const { grade, remark } = assessment
             ? getGradeRemark(score)
-            : { grade: null, remark: 'Not Assessed' };
+            : { grade: null, remark: "Not Assessed" };
 
           broadsheet.push({
             admNo: student.admNo,
@@ -857,17 +1003,17 @@ const generateBroadsheetUnified = async (req, res) => {
             class: classMap[student.class.toString()],
             pathway: isGeneral ? getStudentPathway(student) : undefined,
             learningArea: subject.name,
-            score: score === -1 ? '-' : score,
+            score: score === -1 ? "-" : score,
             grade,
             level: extractLevel(grade),
-            remark
+            remark,
           });
         }
       });
     });
 
     const studentProfiles = {};
-    broadsheet.forEach(row => {
+    broadsheet.forEach((row) => {
       const admNo = row.admNo;
       if (!studentProfiles[admNo]) {
         studentProfiles[admNo] = {
@@ -881,16 +1027,16 @@ const generateBroadsheetUnified = async (req, res) => {
           grade: null,
           remark: null,
           level: null,
-          rank: null
+          rank: null,
         };
       }
-      if (row.score !== '-') {
+      if (row.score !== "-") {
         studentProfiles[admNo].total += Number(row.score);
         studentProfiles[admNo].count += 1;
       }
     });
 
-    Object.values(studentProfiles).forEach(profile => {
+    Object.values(studentProfiles).forEach((profile) => {
       if (profile.count > 0) {
         profile.meanScore = Math.round(profile.total / profile.count);
         const { grade, remark } = getGradeRemark(profile.meanScore);
@@ -901,7 +1047,7 @@ const generateBroadsheetUnified = async (req, res) => {
     });
 
     const ranked = Object.values(studentProfiles)
-      .filter(p => p.meanScore !== null)
+      .filter((p) => p.meanScore !== null)
       .sort((a, b) => b.meanScore - a.meanScore);
 
     let currentRank = 1;
@@ -914,19 +1060,23 @@ const generateBroadsheetUnified = async (req, res) => {
       currentRank++;
     }
 
-    const rankMap = Object.fromEntries(ranked.map(p => [p.admNo, p.rank]));
-    const meanMap = Object.fromEntries(ranked.map(p => [p.admNo, p.meanScore]));
-    const gradeMap = Object.fromEntries(ranked.map(p => [p.admNo, p.grade]));
-    const remarkMap = Object.fromEntries(ranked.map(p => [p.admNo, p.remark]));
-    const levelMap = Object.fromEntries(ranked.map(p => [p.admNo, p.level]));
+    const rankMap = Object.fromEntries(ranked.map((p) => [p.admNo, p.rank]));
+    const meanMap = Object.fromEntries(
+      ranked.map((p) => [p.admNo, p.meanScore])
+    );
+    const gradeMap = Object.fromEntries(ranked.map((p) => [p.admNo, p.grade]));
+    const remarkMap = Object.fromEntries(
+      ranked.map((p) => [p.admNo, p.remark])
+    );
+    const levelMap = Object.fromEntries(ranked.map((p) => [p.admNo, p.level]));
 
-    broadsheet = broadsheet.map(row => ({
+    broadsheet = broadsheet.map((row) => ({
       ...row,
-           meanScore: meanMap[row.admNo] ?? null,
+      meanScore: meanMap[row.admNo] ?? null,
       grade: gradeMap[row.admNo] ?? null,
       remark: remarkMap[row.admNo] ?? null,
       level: levelMap[row.admNo] ?? null,
-      rank: rankMap[row.admNo] ?? null
+      rank: rankMap[row.admNo] ?? null,
     }));
 
     broadsheet.sort((a, b) => {
@@ -946,8 +1096,8 @@ const generateBroadsheetUnified = async (req, res) => {
       schoolLogo: school.logo,
       schoolLocation: school.location,
       schoolContact: school.contact,
-      schoolEmail: school?.email || "N/A",
-      schoolMotto: school?.motto || "Empowering Learners",
+      schoolEmail: school.email || "N/A",
+      schoolMotto: school.motto || "Empowering Learners",
       term,
       year,
       examType: exam,
@@ -963,7 +1113,7 @@ const generateBroadsheetUnified = async (req, res) => {
 
     const effectiveFormat = format || "pdf";
 
-    if (effectiveFormat !== "pdf" && typeof res?.status === "function") {
+    if (effectiveFormat !== "pdf") {
       return res.status(200).json({
         pathway: metadata.pathway,
         term,
@@ -975,20 +1125,23 @@ const generateBroadsheetUnified = async (req, res) => {
           logo: school.logo,
           location: school.location,
           contact: school.contact,
-          schoolEmail: school?.email || "N/A",
-          schoolMotto: school?.motto || "Empowering Learners",
+          schoolEmail: school.email || "N/A",
+          schoolMotto: school.motto || "Empowering Learners",
         },
         subjects: metadata.subjects,
         broadsheet,
       });
     }
-
     const pdfBuffer = await generateBroadsheetPDF(broadsheet, metadata);
 
-    const safeClassLabel = metadata.classLabel.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
+    const safeClassLabel = metadata.classLabel
+      .replace(/\s+/g, "_")
+      .replace(/[^\w\-]/g, "");
     const safeTerm = metadata.term.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
     const safeYear = String(metadata.year).trim();
-    const safePathway = metadata.pathway.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
+    const safePathway = metadata.pathway
+      .replace(/\s+/g, "_")
+      .replace(/[^\w\-]/g, "");
     const filename = `Broadsheet_${safeClassLabel}_${safeTerm}_${safeYear}_${safePathway}.pdf`;
 
     console.log(`[PDF] Sending file: ${filename}`);
@@ -1005,7 +1158,9 @@ const generateBroadsheetUnified = async (req, res) => {
     res.setHeader("Content-Type", "application/pdf; charset=utf-8");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}"`
+      `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(
+        filename
+      )}"`
     );
     return res.send(pdfBuffer);
   } catch (err) {
@@ -1021,29 +1176,34 @@ const generateBroadsheetUnified = async (req, res) => {
 // 📦 Generate broadsheet bundle for all pathways in a grade for a specific term, exam, year
 const generateBroadsheetBundle = async (req, res) => {
   const { gradeName, term, exam, year } = req.query;
-  const { role, name, schoolCode, schoolId } = req.user || {};
+  const { role, name } = req.user || {};
 
   try {
-    // 🔐 Validate school using both ID and code
-    const school = await School.findOne({ _id: schoolId, code: schoolCode });
+    const school = await resolveSchool(req);
     if (!school) {
-      return res.status(404).json({ error: `School '${schoolCode}' not found` });
+      return res.status(404).json({ error: "School not found" });
     }
 
-    // 🔍 Validate exam name dynamically
     const validExams = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
-      school: schoolId
+      school: school._id,
     });
 
     if (!validExams.includes(exam)) {
       return res.status(400).json({
-        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
+        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(
+          ", "
+        )}`,
       });
     }
 
-    const pathways = ['stem', 'arts and sport science', 'social sciences', 'general'];
+    const pathways = [
+      "stem",
+      "arts and sport science",
+      "social sciences",
+      "general",
+    ];
 
     res.setHeader("Content-Type", "application/zip");
     res.setHeader(
@@ -1063,34 +1223,44 @@ const generateBroadsheetBundle = async (req, res) => {
           exam,
           year,
           pathway,
-          format: "pdf"
+          format: "pdf",
         };
 
         const reqClone = {
           query,
           user: {
             ...req.user,
-            schoolId,
-            schoolCode
-          }
+            schoolId: school._id,
+            schoolCode: school.code,
+          },
         };
 
         const pdfBuffer = await generateBroadsheetUnified(reqClone);
 
-        const safePathway = pathway.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
+        const safePathway = pathway
+          .replace(/\s+/g, "_")
+          .replace(/[^\w\-]/g, "");
         const safeTerm = term.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
         const safeYear = String(year).trim();
-        const safeGrade = gradeName.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
+        const safeGrade = gradeName
+          .replace(/\s+/g, "_")
+          .replace(/[^\w\-]/g, "");
         const filename = `Broadsheet_Grade_${safeGrade}_${safeTerm}_${safeYear}_${safePathway}.pdf`;
 
         if (Buffer.isBuffer(pdfBuffer)) {
           console.log(`[PDF] Appending file: ${filename}`);
           zip.append(pdfBuffer, { name: filename });
         } else {
-          console.error(`[PDF Error] Invalid buffer for pathway '${pathway}' — received type:`, typeof pdfBuffer);
+          console.error(
+            `[PDF Error] Invalid buffer for pathway '${pathway}' — received type:`,
+            typeof pdfBuffer
+          );
         }
       } catch (err) {
-        console.error(`[BundleError] Failed to generate broadsheet for '${pathway}':`, err.message);
+        console.error(
+          `[BundleError] Failed to generate broadsheet for '${pathway}':`,
+          err.message
+        );
       }
     }
 
@@ -1101,7 +1271,6 @@ const generateBroadsheetBundle = async (req, res) => {
   }
 };
 
-
 // 📊 Get grade distribution across classes, grades, or entire school
 const getGradeDistributionUnified = async (req, res) => {
   try {
@@ -1109,47 +1278,49 @@ const getGradeDistributionUnified = async (req, res) => {
     const { format } = req.query;
 
     const gradeBands = [
-      'Exceeding Expectations 2',
-      'Exceeding Expectations 1',
-      'Meeting Expectations 2',
-      'Meeting Expectations 1',
-      'Approaching Expectations 2',
-      'Approaching Expectations 1',
-      'Below Expectations 2',
-      'Below Expectations 1'
+      "Exceeding Expectations 2",
+      "Exceeding Expectations 1",
+      "Meeting Expectations 2",
+      "Meeting Expectations 1",
+      "Approaching Expectations 2",
+      "Approaching Expectations 1",
+      "Below Expectations 2",
+      "Below Expectations 1",
     ];
 
-    const school = await School.findOne({
-      _id: req.user.schoolId,
-      code: req.user.schoolCode
-    });
-
+    const school = await resolveSchool(req);
     if (!school) {
-      return res.status(404).json({ error: `School '${req.user.schoolCode}' not found` });
+      return res.status(404).json({ error: "School not found" });
     }
 
-    // 🔍 Validate exam name dynamically
     const validExams = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
-      school: req.user.schoolId
+      school: school._id,
     });
 
     if (!validExams.includes(exam)) {
       return res.status(400).json({
-        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
+        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(
+          ", "
+        )}`,
       });
     }
 
-    const allPathways = await Pathway.find({ school: req.user.schoolId }).select('name');
+    const allPathways = await Pathway.find({ school: school._id }).select(
+      "name"
+    );
     const pathwayNames = allPathways
-      .map(p => p.name)
-      .filter(name => name.toLowerCase() !== "compulsory");
+      .map((p) => p.name)
+      .filter((name) => name.toLowerCase() !== "compulsory");
 
     const gradeMap = Object.fromEntries(
-      pathwayNames.map(p => [p, Object.fromEntries(gradeBands.map(b => [b, 0]))])
+      pathwayNames.map((p) => [
+        p,
+        Object.fromEntries(gradeBands.map((b) => [b, 0])),
+      ])
     );
-    const gradeTotals = Object.fromEntries(gradeBands.map(b => [b, 0]));
+    const gradeTotals = Object.fromEntries(gradeBands.map((b) => [b, 0]));
 
     let classIds = [];
     let mode = "";
@@ -1164,16 +1335,17 @@ const getGradeDistributionUnified = async (req, res) => {
       const numericGrade = parseInt(level.match(/\d+/)[0]);
       const classDocs = await Class.find({
         grade: numericGrade,
-        school: req.user.schoolId
+        school: school._id,
       }).select("_id");
-      if (!classDocs.length) return res.status(404).json({ error: "No classes found for grade" });
-      classIds = classDocs.map(c => c._id);
+      if (!classDocs.length)
+        return res.status(404).json({ error: "No classes found for grade" });
+      classIds = classDocs.map((c) => c._id);
       classFilter = { class: { $in: classIds } };
     } else {
       mode = "class-specific";
       const classDoc = await Class.findOne({
         name: new RegExp(`^${level}$`, "i"),
-        school: req.user.schoolId
+        school: school._id,
       });
       if (!classDoc) return res.status(404).json({ error: "Class not found" });
       classIds = [classDoc._id];
@@ -1183,7 +1355,7 @@ const getGradeDistributionUnified = async (req, res) => {
 
     const students = await Student.find({
       ...classFilter,
-      school: req.user.schoolId
+      school: school._id,
     })
       .populate("pathway", "name")
       .populate("class", "name")
@@ -1194,21 +1366,21 @@ const getGradeDistributionUnified = async (req, res) => {
       term,
       year: parseInt(year),
       exam,
-      school: req.user.schoolId
+      school: school._id,
     })
       .populate("subject", "name papers")
       .populate("student", "admNo");
 
     const studentScores = {};
 
-    assessments.forEach(a => {
+    assessments.forEach((a) => {
       const admNo = a.student?.admNo;
       if (!admNo) return;
 
       if (!studentScores[admNo]) {
         studentScores[admNo] = {
           scores: [],
-          student: students.find(s => s.admNo === admNo)
+          student: students.find((s) => s.admNo === admNo),
         };
       }
 
@@ -1225,7 +1397,9 @@ const getGradeDistributionUnified = async (req, res) => {
       if (!pathway || !pathwayNames.includes(pathway)) return;
       if (scores.length < 5) return;
 
-      const mean = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+      const mean = Math.round(
+        scores.reduce((a, b) => a + b, 0) / scores.length
+      );
       const { grade } = getGradeRemark(mean);
       if (!gradeBands.includes(grade)) return;
 
@@ -1233,7 +1407,9 @@ const getGradeDistributionUnified = async (req, res) => {
         const gradeLevel = className?.substring(0, 2);
         const gradeLabel = `Grade ${gradeLevel}`;
         if (!gradeMap[pathway][gradeLabel]) {
-          gradeMap[pathway][gradeLabel] = Object.fromEntries(gradeBands.map(b => [b, 0]));
+          gradeMap[pathway][gradeLabel] = Object.fromEntries(
+            gradeBands.map((b) => [b, 0])
+          );
         }
         gradeMap[pathway][gradeLabel][grade]++;
       } else {
@@ -1251,15 +1427,23 @@ const getGradeDistributionUnified = async (req, res) => {
         gradeBands,
         mode,
         stream,
-        schoolName: school?.name ?? "School",
-        schoolLogo: school?.logo ?? null
+        schoolName: school.name,
+        schoolLogo: school.logo,
       };
 
       const pdfBuffer = await generateGradeDistributionPDF(gradeMap, metadata);
-      const filename = `Distribution_${level.replace(/\s+/g, "_")}_${term}_${year}.pdf`;
+      const filename = `Distribution_${level.replace(
+        /\s+/g,
+        "_"
+      )}_${term}_${year}.pdf`;
 
       res.setHeader("Content-Type", "application/pdf; charset=utf-8");
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(
+          filename
+        )}`
+      );
       return res.send(pdfBuffer);
     }
 
@@ -1271,8 +1455,8 @@ const getGradeDistributionUnified = async (req, res) => {
       exam,
       stream,
       school: {
-        name: school?.name ?? null,
-        logo: school?.logo ?? null
+        name: school.name,
+        logo: school.logo,
       },
       distribution: gradeMap,
       totals: mode !== "cross-grade" ? gradeTotals : undefined,
@@ -1281,8 +1465,8 @@ const getGradeDistributionUnified = async (req, res) => {
         type: "stackedBar",
         pathways: Object.keys(gradeMap),
         gradeBands,
-        data: gradeMap
-      }
+        data: gradeMap,
+      },
     });
   } catch (err) {
     console.error("[GradeDistributionUnified]", err);
@@ -1291,75 +1475,88 @@ const getGradeDistributionUnified = async (req, res) => {
 };
 
 // Helper function to compute student profiles
-const computeStudentProfiles = async ({ term, exam, year, pathway, schoolId }) => {
+const computeStudentProfiles = async (req) => {
+  const { term, exam, year, pathway } = req.query;
+  const school = await resolveSchool(req);
+  if (!school) throw new Error("School not found");
+
+  const schoolId = school._id;
   const grades = [10, 11, 12];
 
-  // 🔍 Validate exam name dynamically
   const validExams = await Assessment.distinct("exam", {
     term,
     year: parseInt(year),
-    school: schoolId
+    school: schoolId,
   });
 
   if (!validExams.includes(exam)) {
-    throw new Error(`Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`);
+    throw new Error(
+      `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(
+        ", "
+      )}`
+    );
   }
 
-  // 🔍 Scoped class lookup
   const classDocs = await Class.find({
     grade: { $in: grades },
-    school: schoolId
+    school: schoolId,
   }).select("_id name grade");
 
-  const classMap = Object.fromEntries(classDocs.map(c => [c._id.toString(), c.name]));
-  const classToGradeMap = Object.fromEntries(classDocs.map(c => [c.name, c.grade]));
+  const classMap = Object.fromEntries(
+    classDocs.map((c) => [c._id.toString(), c.name])
+  );
+  const classToGradeMap = Object.fromEntries(
+    classDocs.map((c) => [c.name, c.grade])
+  );
 
-  // 🔍 Scoped subject lookup
   const allSubjects = await Subject.find({ school: schoolId })
     .select("name _id group code shortName pathway")
     .populate("pathway", "name")
     .sort({ code: 1 });
 
   const compulsorySubjects = allSubjects
-    .filter(s => s.group === "Compulsory")
-    .map(s => s.name);
+    .filter((s) => s.group === "Compulsory")
+    .map((s) => s.name);
 
-  // 🔍 Scoped student lookup
   const students = await Student.find({
-    class: { $in: classDocs.map(c => c._id) },
-    school: schoolId
+    class: { $in: classDocs.map((c) => c._id) },
+    school: schoolId,
   })
     .select("admNo name class selectedSubjects grade")
     .sort({ admNo: 1 });
 
   const selectedSubjectsSet = new Set(
-    students.flatMap(s => s.selectedSubjects?.map(id => id.toString()) || [])
+    students.flatMap(
+      (s) => s.selectedSubjects?.map((id) => id.toString()) || []
+    )
   );
 
-  const selectedSubjects = allSubjects.filter(s =>
-    selectedSubjectsSet.has(s._id.toString()) || selectedSubjectsSet.has(s.name)
+  const selectedSubjects = allSubjects.filter(
+    (s) =>
+      selectedSubjectsSet.has(s._id.toString()) ||
+      selectedSubjectsSet.has(s.name)
   );
 
-  // 🔍 Scoped assessment lookup
   const assessments = await Assessment.find({
-    class: { $in: classDocs.map(c => c._id) },
+    class: { $in: classDocs.map((c) => c._id) },
     term,
     exam,
     year: parseInt(year),
-    school: schoolId
+    school: schoolId,
   })
     .populate("student", "admNo name class")
     .populate("subject", "name");
 
   const broadsheet = [];
 
-  students.forEach(student => {
-    selectedSubjects.forEach(subject => {
+  students.forEach((student) => {
+    selectedSubjects.forEach((subject) => {
       const isSelected = student.selectedSubjects?.includes(subject._id);
       if (isSelected) {
         const assessment = assessments.find(
-          a => a.student?.admNo === student.admNo &&
-               a.subject?.name === subject.name
+          (a) =>
+            a.student?.admNo === student.admNo &&
+            a.subject?.name === subject.name
         );
 
         const score = assessment
@@ -1370,14 +1567,14 @@ const computeStudentProfiles = async ({ term, exam, year, pathway, schoolId }) =
           admNo: student.admNo,
           name: student.name,
           class: classMap[student.class.toString()],
-          score: score === -1 ? '-' : score
+          score: score === -1 ? "-" : score,
         });
       }
     });
   });
 
   const studentProfiles = {};
-  broadsheet.forEach(row => {
+  broadsheet.forEach((row) => {
     const admNo = row.admNo;
     if (!studentProfiles[admNo]) {
       studentProfiles[admNo] = {
@@ -1386,110 +1583,107 @@ const computeStudentProfiles = async ({ term, exam, year, pathway, schoolId }) =
         class: row.class,
         total: 0,
         count: 0,
-        meanScore: null
+        meanScore: null,
       };
     }
-    if (row.score !== '-') {
+    if (row.score !== "-") {
       studentProfiles[admNo].total += Number(row.score);
       studentProfiles[admNo].count += 1;
     }
   });
 
-  Object.values(studentProfiles).forEach(profile => {
+  Object.values(studentProfiles).forEach((profile) => {
     if (profile.count > 0) {
       profile.meanScore = Math.round(profile.total / profile.count);
     }
   });
 
   return {
-    profiles: Object.values(studentProfiles).filter(p => typeof p.meanScore === 'number'),
-    classToGradeMap
+    profiles: Object.values(studentProfiles).filter(
+      (p) => typeof p.meanScore === "number"
+    ),
+    classToGradeMap,
   };
 };
-
 
 // 📊 Rank classes in a stream for a specific grade, term, exam, year
 const rankGradeAndClasses = async (req, res) => {
   try {
     const { term, year, exam } = req.params;
     const { format } = req.query;
-    const { schoolCode, schoolId } = req.user;
 
     const grades = [10, 11, 12];
 
-    // 🔐 Validate school using both ID and code
-    const school = await School.findOne({ _id: schoolId, code: schoolCode });
+    const school = await resolveSchool(req);
     if (!school) {
-      return res.status(404).json({ error: `School '${schoolCode}' not found` });
+      return res.status(404).json({ error: "School not found" });
     }
 
-    // 🔍 Validate exam name dynamically
     const validExams = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
-      school: schoolId
+      school: school._id,
     });
 
     if (!validExams.includes(exam)) {
       return res.status(400).json({
-        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
+        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(
+          ", "
+        )}`,
       });
     }
 
-    // 🔍 Scoped class lookup
     const classDocs = await Class.find({
       grade: { $in: grades },
-      school: schoolId
+      school: school._id,
     }).select("name grade");
 
     const classToGradeMap = {};
     const gradeClassMap = {};
 
-    classDocs.forEach(c => {
+    classDocs.forEach((c) => {
       classToGradeMap[c.name] = c.grade;
       if (!gradeClassMap[c.grade]) gradeClassMap[c.grade] = [];
       gradeClassMap[c.grade].push(c.name);
     });
 
-    // 🔍 Scoped student profile computation
     const { profiles } = await computeStudentProfiles({
       term,
       exam,
       year,
-      pathway: 'general',
-      schoolId
+      pathway: "general",
+      schoolId: school._id,
     });
 
     const classScores = {};
-    profiles.forEach(p => {
+    profiles.forEach((p) => {
       if (!classScores[p.class]) classScores[p.class] = [];
       classScores[p.class].push(p.meanScore);
     });
 
-    // 🔍 Scoped intake aggregation
     const gradeIntakeMap = await Student.aggregate([
       {
         $match: {
           currentGrade: { $in: grades },
-          status: 'active',
-          school: schoolId
-        }
+          status: "active",
+          school: school._id,
+        },
       },
       {
         $group: {
           _id: "$currentGrade",
-          count: { $sum: 1 }
-        }
-      }
+          count: { $sum: 1 },
+        },
+      },
     ]);
 
     const gradeIntake = Object.fromEntries(
-      gradeIntakeMap.map(g => [g._id, g.count])
+      gradeIntakeMap.map((g) => [g._id, g.count])
     );
 
-    const classRanking = classDocs.map(c => {
+    const classRanking = classDocs.map((c) => {
       const className = c.name;
-      const intake = profiles.filter(p => p.class === className).length;
+      const intake = profiles.filter((p) => p.class === className).length;
       const scores = classScores[className] || [];
 
       const totalScore = scores.reduce((a, b) => a + b, 0);
@@ -1502,70 +1696,83 @@ const rankGradeAndClasses = async (req, res) => {
         entry: intake,
         mean,
         gradeLabel,
-        previousMean: '--',
-        deviation: '--',
-        color: 'gray'
+        previousMean: "--",
+        deviation: "--",
+        color: "gray",
       };
     });
 
     classRanking.sort((a, b) => b.mean - a.mean);
     classRanking.forEach((r, i) => (r.position = i + 1));
 
-    const gradeRanking = Object.entries(gradeClassMap).map(([grade, classList]) => {
-      const classMeans = classList.map(className => {
-        const scores = classScores[className] || [];
-        const intake = profiles.filter(p => p.class === className).length;
-        const totalScore = scores.reduce((a, b) => a + b, 0);
-        return intake > 0 ? +(totalScore / intake).toFixed(2) : 0;
-      });
+    const gradeRanking = Object.entries(gradeClassMap).map(
+      ([grade, classList]) => {
+        const classMeans = classList.map((className) => {
+          const scores = classScores[className] || [];
+          const intake = profiles.filter((p) => p.class === className).length;
+          const totalScore = scores.reduce((a, b) => a + b, 0);
+          return intake > 0 ? +(totalScore / intake).toFixed(2) : 0;
+        });
 
-      const mean = classMeans.length
-        ? +(classMeans.reduce((a, b) => a + b, 0) / classMeans.length).toFixed(2)
-        : 0;
+        const mean = classMeans.length
+          ? +(
+              classMeans.reduce((a, b) => a + b, 0) / classMeans.length
+            ).toFixed(2)
+          : 0;
 
-      const entry = gradeIntake[grade] || 0;
-      const { grade: gradeLabel } = getGradeRemark(mean);
+        const entry = gradeIntake[grade] || 0;
+        const { grade: gradeLabel } = getGradeRemark(mean);
 
-      return {
-        grade: parseInt(grade),
-        entry,
-        mean,
-        gradeLabel,
-        previousMean: '--',
-        deviation: '--',
-        color: 'gray'
-      };
-    });
+        return {
+          grade: parseInt(grade),
+          entry,
+          mean,
+          gradeLabel,
+          previousMean: "--",
+          deviation: "--",
+          color: "gray",
+        };
+      }
+    );
 
     gradeRanking.sort((a, b) => b.mean - a.mean);
     gradeRanking.forEach((r, i) => (r.position = i + 1));
 
     if (format === "pdf") {
       const metadata = {
-        schoolName: school?.name || "Unknown School",
-        schoolLogo: school?.logo || "https://elimu-assets.s3.amazonaws.com/logo.png",
-        schoolLocation: school?.location || "N/A",
-        schoolContact: school?.contact || "N/A",
+        schoolName: school.name,
+        schoolLogo:
+          school.logo || "https://elimu-assets.s3.amazonaws.com/logo.png",
+        schoolLocation: school.location || "N/A",
+        schoolContact: school.contact || "N/A",
         term,
         year,
-        examType: exam
+        examType: exam,
       };
 
-      const pdfBuffer = await generateRankingPDF({ classRanking, gradeRanking }, metadata);
+      const pdfBuffer = await generateRankingPDF(
+        { classRanking, gradeRanking },
+        metadata
+      );
       const filename = `CBC_Ranking_${term}_${year}.pdf`;
 
       res.setHeader("Content-Type", "application/pdf; charset=utf-8");
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(
+          filename
+        )}`
+      );
       return res.send(pdfBuffer);
     }
 
     res.status(200).json({
       classRanking,
-      gradeRanking
+      gradeRanking,
     });
   } catch (err) {
-    console.error('[RankGradeAndClasses]', err);
-    res.status(500).json({ error: 'Error generating CBC ranking' });
+    console.error("[RankGradeAndClasses]", err);
+    res.status(500).json({ error: "Error generating CBC ranking" });
   }
 };
 
@@ -1573,21 +1780,25 @@ const rankGradeAndClasses = async (req, res) => {
 const rankSubjectsAndLearningAreas = async (req, res) => {
   try {
     const { grade, term, year, exam } = req.params;
-    const { scope = 'class', format } = req.query;
-    const { schoolCode, schoolId } = req.user;
+    const { scope = "class", format } = req.query;
 
     const gradeNum = parseInt(grade);
+    const school = await resolveSchool(req);
+    if (!school) {
+      return res.status(404).json({ error: "School not found" });
+    }
 
-    // 🔍 Validate exam name dynamically
     const validExams = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
-      school: schoolId
+      school: school._id,
     });
 
     if (!validExams.includes(exam)) {
       return res.status(400).json({
-        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
+        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(
+          ", "
+        )}`,
       });
     }
 
@@ -1597,60 +1808,67 @@ const rankSubjectsAndLearningAreas = async (req, res) => {
 
     const classes = await Class.find({
       grade: gradeNum,
-      school: schoolId
+      school: school._id,
     });
 
-    const classMap = Object.fromEntries(classes.map(c => [c._id.toString(), c.name]));
+    const classMap = Object.fromEntries(
+      classes.map((c) => [c._id.toString(), c.name])
+    );
 
     const students = await Student.find({
-      class: { $in: classes.map(c => c._id) },
-      school: schoolId
-    }).select('_id class');
+      class: { $in: classes.map((c) => c._id) },
+      school: school._id,
+    }).select("_id class");
 
     const studentClassMap = Object.fromEntries(
-      students.map(s => [s._id.toString(), classMap[s.class.toString()]])
+      students.map((s) => [s._id.toString(), classMap[s.class.toString()]])
     );
-    const studentIds = students.map(s => s._id);
+    const studentIds = students.map((s) => s._id);
 
     const assessments = await Assessment.find({
       student: { $in: studentIds },
       term,
       year: parseInt(year),
       exam: { $in: examFilter },
-      school: schoolId
-    }).select('student exam subject papers');
+      school: school._id,
+    }).select("student exam subject papers");
 
-    const subjectIds = [...new Set(assessments.map(a => a.subject.toString()))];
+    const subjectIds = [
+      ...new Set(assessments.map((a) => a.subject.toString())),
+    ];
 
     const subjects = await Subject.find({
       _id: { $in: subjectIds },
-      school: schoolId
-    }).select('name group');
+      school: school._id,
+    }).select("name group");
 
     const subjectMeta = Object.fromEntries(
-      subjects.map(s => [s._id.toString(), { name: s.name, group: s.group }])
+      subjects.map((s) => [s._id.toString(), { name: s.name, group: s.group }])
     );
 
     const grouped = {};
 
-    assessments.forEach(a => {
+    assessments.forEach((a) => {
       const studentId = a.student.toString();
       const className = studentClassMap[studentId];
       const meta = subjectMeta[a.subject.toString()];
       if (!className || !meta) return;
 
       const { name, group } = meta;
-      const mean = Array.isArray(a.papers) && a.papers.length
-        ? a.papers.reduce((sum, p) => sum + p.score, 0) / a.papers.length
-        : null;
-      if (typeof mean !== 'number' || isNaN(mean)) return;
+      const mean =
+        Array.isArray(a.papers) && a.papers.length
+          ? a.papers.reduce((sum, p) => sum + p.score, 0) / a.papers.length
+          : null;
+      if (typeof mean !== "number" || isNaN(mean)) return;
 
       grouped[className] ??= {};
       grouped[className][group] ??= {};
       grouped[className][group][name] ??= { current: [], previous: [] };
 
-      if (a.exam === exam) grouped[className][group][name].current.push(+mean.toFixed(2));
-      else if (hasPrevious && a.exam === previousExam) grouped[className][group][name].previous.push(+mean.toFixed(2));
+      if (a.exam === exam)
+        grouped[className][group][name].current.push(+mean.toFixed(2));
+      else if (hasPrevious && a.exam === previousExam)
+        grouped[className][group][name].previous.push(+mean.toFixed(2));
     });
 
     const ranking = [];
@@ -1659,24 +1877,34 @@ const rankSubjectsAndLearningAreas = async (req, res) => {
       const allSubjects = [];
 
       Object.entries(pathways).forEach(([pathway, subjects]) => {
-        const subjectList = Object.entries(subjects).map(([learningArea, { current, previous }]) => {
-          const entry = current.length;
-          const mean = entry ? +(current.reduce((a, b) => a + b, 0) / entry).toFixed(2) : 0;
-          const prevMean = previous.length ? +(previous.reduce((a, b) => a + b, 0) / previous.length).toFixed(2) : null;
-          const deviation = prevMean !== null ? +(mean - prevMean).toFixed(2) : null;
-          const color = deviation === null ? 'gray' : deviation >= 0 ? 'green' : 'red';
+        const subjectList = Object.entries(subjects).map(
+          ([learningArea, { current, previous }]) => {
+            const entry = current.length;
+            const mean = entry
+              ? +(current.reduce((a, b) => a + b, 0) / entry).toFixed(2)
+              : 0;
+            const prevMean = previous.length
+              ? +(
+                  previous.reduce((a, b) => a + b, 0) / previous.length
+                ).toFixed(2)
+              : null;
+            const deviation =
+              prevMean !== null ? +(mean - prevMean).toFixed(2) : null;
+            const color =
+              deviation === null ? "gray" : deviation >= 0 ? "green" : "red";
 
-          return {
-            class: className,
-            pathway,
-            learningArea,
-            entry,
-            mean,
-            previousMean: prevMean,
-            deviation,
-            color
-          };
-        });
+            return {
+              class: className,
+              pathway,
+              learningArea,
+              entry,
+              mean,
+              previousMean: prevMean,
+              deviation,
+              color,
+            };
+          }
+        );
 
         subjectList.sort((a, b) => b.mean - a.mean);
         subjectList.forEach((r, i) => (r.rank = i + 1));
@@ -1688,34 +1916,39 @@ const rankSubjectsAndLearningAreas = async (req, res) => {
       allSubjects.forEach((r, i) => (r.overallRank = i + 1));
     });
 
-    if (format === 'pdf') {
-      const school = await School.findOne({
-        _id: schoolId,
-        code: schoolCode
-      });
-
+    if (format === "pdf") {
       const metadata = {
-        schoolName: school?.name || 'Unknown School',
-        schoolLogo: school?.logo || 'https://elimu-assets.s3.amazonaws.com/logo.png',
-        schoolLocation: school?.location || 'N/A',
-        schoolContact: school?.contact || 'N/A',
+        schoolName: school.name || "Unknown School",
+        schoolLogo:
+          school.logo || "https://elimu-assets.s3.amazonaws.com/logo.png",
+        schoolLocation: school.location || "N/A",
+        schoolContact: school.contact || "N/A",
         term,
         year,
-        examType: exam
+        examType: exam,
       };
 
-      const pdfBuffer = await generateSubjectRankingPDF(ranking, metadata, scope);
+      const pdfBuffer = await generateSubjectRankingPDF(
+        ranking,
+        metadata,
+        scope
+      );
       const filename = `CBC_Subject_Ranking_${scope}_${term}_${year}.pdf`;
 
       res.setHeader("Content-Type", "application/pdf; charset=utf-8");
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(
+          filename
+        )}`
+      );
       return res.send(pdfBuffer);
     }
 
     res.status(200).json({ raw: ranking });
   } catch (err) {
-    console.error('[FinalSubjectRanking]', err);
-    res.status(500).json({ error: 'Error generating subject ranking' });
+    console.error("[FinalSubjectRanking]", err);
+    res.status(500).json({ error: "Error generating subject ranking" });
   }
 };
 
@@ -1724,46 +1957,50 @@ const getAssessmentByAdmNo = async (req, res) => {
   try {
     const { admNo, subjectName } = req.params;
     const { term, exam, year } = req.query;
-    const { schoolId } = req.user;
 
     if (!term || !exam || !year) {
-      return res.status(400).json({ error: 'Missing term, exam, or year in query' });
+      return res
+        .status(400)
+        .json({ error: "Missing term, exam, or year in query" });
     }
 
-    // 🔍 Validate exam name dynamically
+    const school = await resolveSchool(req);
+    if (!school) {
+      return res.status(404).json({ error: "School not found" });
+    }
+
     const validExams = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
-      school: schoolId
+      school: school._id,
     });
 
     if (!validExams.includes(exam)) {
       return res.status(400).json({
-        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
+        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(
+          ", "
+        )}`,
       });
     }
 
-    // 🔍 Scoped student lookup
     const student = await Student.findOne({
       admNo: admNo.trim(),
-      school: schoolId
-    }).populate('class');
+      school: school._id,
+    }).populate("class");
 
     if (!student) {
-      return res.status(404).json({ error: 'Student not found' });
+      return res.status(404).json({ error: "Student not found" });
     }
 
-    // 🔍 Scoped subject lookup
     const subject = await Subject.findOne({
-      name: new RegExp(`^${subjectName.trim()}$`, 'i'),
-      school: schoolId
+      name: new RegExp(`^${subjectName.trim()}$`, "i"),
+      school: school._id,
     });
 
     if (!subject) {
-      return res.status(404).json({ error: 'Subject not found' });
+      return res.status(404).json({ error: "Subject not found" });
     }
 
-    // 🔍 Scoped assessment lookup
     const assessment = await Assessment.findOne({
       student: student._id,
       subject: subject._id,
@@ -1771,11 +2008,13 @@ const getAssessmentByAdmNo = async (req, res) => {
       term,
       exam,
       year: parseInt(year),
-      school: schoolId
+      school: school._id,
     });
 
     if (!assessment) {
-      return res.status(404).json({ error: 'Assessment not found for this setup' });
+      return res
+        .status(404)
+        .json({ error: "Assessment not found for this setup" });
     }
 
     res.status(200).json({
@@ -1783,29 +2022,31 @@ const getAssessmentByAdmNo = async (req, res) => {
         name: student.name,
         admNo: student.admNo,
         class: student.class.name,
-        grade: student.currentGrade
+        grade: student.currentGrade,
       },
       learningArea: subject.name,
       pathway: subject.group,
       assessment: {
         entry: assessment.papers?.length || 0,
         mean: assessment.papers?.length
-          ? +(assessment.papers.reduce((sum, p) => sum + p.score, 0) / assessment.papers.length).toFixed(2)
+          ? +(
+              assessment.papers.reduce((sum, p) => sum + p.score, 0) /
+              assessment.papers.length
+            ).toFixed(2)
           : null,
-        papers: assessment.papers
+        papers: assessment.papers,
       },
       context: {
         term,
         exam,
-        year: parseInt(year)
-      }
+        year: parseInt(year),
+      },
     });
   } catch (err) {
-    console.error('[getAssessmentByAdmNo]', err);
-    res.status(500).json({ error: 'Error retrieving assessment' });
+    console.error("[getAssessmentByAdmNo]", err);
+    res.status(500).json({ error: "Error retrieving assessment" });
   }
 };
-
 
 module.exports = {
   enterMarks,
@@ -1813,8 +2054,8 @@ module.exports = {
   generateReportForm,
   generateBroadsheetUnified,
   generateBroadsheetBundle,
- getGradeDistributionUnified,
+  getGradeDistributionUnified,
   rankGradeAndClasses,
- rankSubjectsAndLearningAreas,
-  getAssessmentByAdmNo
+  rankSubjectsAndLearningAreas,
+  getAssessmentByAdmNo,
 };

@@ -3,15 +3,31 @@ const Subject = require('../models/subject');
 const School = require('../models/school');
 const Assessment = require('../models/assessment');
 
+// 🧠 Resolve school context from user, query, or body
+const resolveSchool = async (req) => {
+  const schoolId = req.user?.schoolId || req.query.schoolId || req.body.schoolId;
+  const schoolCode = req.user?.schoolCode || req.query.schoolCode || req.body.schoolCode;
+
+  if (!schoolId && !schoolCode) return null;
+
+  return await School.findOne({
+    ...(schoolId && { _id: schoolId }),
+    ...(schoolCode && { code: schoolCode })
+  });
+};
+
 // 🔐 Set paper config (generic)
 const setPaperConfig = async (req, res) => {
   try {
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: 'School not found.' });
+
     const { subject, grade, term, exam, year, papers } = req.body;
 
     const validExams = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
-      school: req.user.schoolId
+      school: school._id
     });
 
     if (!validExams.includes(exam)) {
@@ -20,10 +36,10 @@ const setPaperConfig = async (req, res) => {
       });
     }
 
-    const exists = await PaperConfig.findOne({ subject, grade, term, exam, year, school: req.user.schoolId });
+    const exists = await PaperConfig.findOne({ subject, grade, term, exam, year, school: school._id });
     if (exists) return res.status(409).json({ error: 'Paper config already exists for this subject and period.' });
 
-    const config = await PaperConfig.create({ subject, grade, term, exam, year, papers, school: req.user.schoolId });
+    const config = await PaperConfig.create({ subject, grade, term, exam, year, papers, school: school._id });
     res.status(201).json({ message: 'Paper config created.', config });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -33,13 +49,16 @@ const setPaperConfig = async (req, res) => {
 // 🔐 Set paper config by subject name
 const setPaperConfigByName = async (req, res) => {
   try {
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: 'School not found.' });
+
     const { subjectName } = req.params;
     const { grade, term, exam, year, papers } = req.body;
 
     const validExams = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
-      school: req.user.schoolId
+      school: school._id
     });
 
     if (!validExams.includes(exam)) {
@@ -48,7 +67,7 @@ const setPaperConfigByName = async (req, res) => {
       });
     }
 
-    const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: req.user.schoolId });
+    const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: school._id });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
 
     if (!Array.isArray(papers) || papers.length === 0) {
@@ -70,7 +89,7 @@ const setPaperConfigByName = async (req, res) => {
       term,
       exam,
       year,
-      school: req.user.schoolId
+      school: school._id
     });
 
     if (exists) {
@@ -84,7 +103,7 @@ const setPaperConfigByName = async (req, res) => {
       exam,
       year,
       papers: parsedPapers,
-      school: req.user.schoolId
+      school: school._id
     });
 
     res.status(201).json({
@@ -107,6 +126,9 @@ const setPaperConfigByName = async (req, res) => {
 // 🔍 Get paper config by subject name
 const getPaperConfigByName = async (req, res) => {
   try {
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: 'School not found.' });
+
     const { subjectName } = req.params;
     const { grade, term, exam, year } = req.query;
 
@@ -114,7 +136,7 @@ const getPaperConfigByName = async (req, res) => {
       const validExams = await Assessment.distinct("exam", {
         term,
         year: parseInt(year),
-        school: req.user.schoolId
+        school: school._id
       });
 
       if (!validExams.includes(exam)) {
@@ -124,12 +146,12 @@ const getPaperConfigByName = async (req, res) => {
       }
     }
 
-    const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: req.user.schoolId });
+    const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: school._id });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
 
     const query = {
       subject: subject._id,
-      school: req.user.schoolId,
+      school: school._id,
       ...(grade && { grade }),
       ...(term && { term }),
       ...(exam && { exam }),
@@ -158,7 +180,10 @@ const getPaperConfigByName = async (req, res) => {
 // 🔍 Get all paper configs
 const getPaperConfigs = async (req, res) => {
   try {
-    const configs = await PaperConfig.find({ school: req.user.schoolId }).populate('subject');
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: 'School not found.' });
+
+    const configs = await PaperConfig.find({ school: school._id }).populate('subject');
 
     const formatted = configs.map(cfg => ({
       LearningArea: cfg.subject?.name,
@@ -179,6 +204,9 @@ const getPaperConfigs = async (req, res) => {
 // ✏️ Update paper config by subject name
 const updatePaperConfigByName = async (req, res) => {
   try {
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: 'School not found.' });
+
     const rawSubject = decodeURIComponent(req.params.subjectName).trim();
     const subjectName = rawSubject.replace(/\s+/g, " ");
 
@@ -187,7 +215,7 @@ const updatePaperConfigByName = async (req, res) => {
     const validExams = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
-      school: req.user.schoolId
+      school: school._id
     });
 
     if (!validExams.includes(exam)) {
@@ -196,11 +224,11 @@ const updatePaperConfigByName = async (req, res) => {
       });
     }
 
-    const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: req.user.schoolId });
+    const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: school._id });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
 
     const updated = await PaperConfig.findOneAndUpdate(
-      { subject: subject._id, grade, term, exam, year, school: req.user.schoolId },
+      { subject: subject._id, grade, term, exam, year, school: school._id },
       { papers },
       { new: true }
     ).populate('subject');
@@ -227,8 +255,11 @@ const updatePaperConfigByName = async (req, res) => {
 // 🗑️ Delete paper config by subject name
 const deletePaperConfigByName = async (req, res) => {
   try {
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: 'School not found.' });
+
     const rawSubject = decodeURIComponent(req.params.subjectName).trim();
-    const subject = await Subject.findOne({ name: new RegExp(`^${rawSubject}$`, 'i'), school: req.user.schoolId });
+    const subject = await Subject.findOne({ name: new RegExp(`^${rawSubject}$`, 'i'), school: school._id });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
 
     const { grade, term, exam, year } = req.query;
@@ -237,7 +268,7 @@ const deletePaperConfigByName = async (req, res) => {
       const validExams = await Assessment.distinct("exam", {
         term,
         year: parseInt(year),
-        school: req.user.schoolId
+        school: school._id
       });
 
       if (!validExams.includes(exam)) {
@@ -253,10 +284,10 @@ const deletePaperConfigByName = async (req, res) => {
       term,
       exam,
       year,
-      school: req.user.schoolId
+      school: school._id
     });
 
-      if (!deleted) return res.status(404).json({ error: 'Config not found to delete.' });
+    if (!deleted) return res.status(404).json({ error: 'Config not found to delete.' });
 
     res.status(200).json({ message: 'Paper config deleted.' });
   } catch (err) {
