@@ -13,28 +13,6 @@ router.post(
   trackController.createTrack
 );
 
-
-// // 📤 Get tracks, optionally filtered by pathwayId
-// router.get("/", async (req, res) => {
-//   try {
-//     const { pathwayId } = req.query;
-//     console.log("[GET /tracks] pathwayId:", pathwayId);
-
-//     // ✅ Validate ObjectId
-//     const isValidId = mongoose.Types.ObjectId.isValid(pathwayId);
-//     const query = isValidId ? { pathway: pathwayId } : {};
-
-//     const tracks = await Track.find(query);
-//     res.json(tracks);
-//   } catch (err) {
-//     console.error("[GET /tracks] Error:", err);
-//     res.status(500).json({ error: "Failed to fetch tracks" });
-//   }
-// });
-
-
-
-
 // 📦 Bulk create tracks
 router.post(
   '/bulk-create',
