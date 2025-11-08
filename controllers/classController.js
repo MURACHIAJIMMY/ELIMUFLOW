@@ -20,9 +20,19 @@ const bulkCreateClasses = async (req, res) => {
     const school = await resolveSchool(req);
     if (!school) return res.status(404).json({ error: 'School not found.' });
 
-    const { classes } = req.body;
-    if (!Array.isArray(classes) || classes.length === 0) {
-      return res.status(400).json({ error: 'Provide an array of class objects.' });
+    let { classes } = req.body;
+
+    // 🧠 Normalize single object to array
+    if (!Array.isArray(classes)) {
+      if (typeof classes === 'object' && classes !== null) {
+        classes = [classes];
+      } else {
+        return res.status(400).json({ error: 'Provide a class object or an array of class objects.' });
+      }
+    }
+
+    if (classes.length === 0) {
+      return res.status(400).json({ error: 'Class list is empty.' });
     }
 
     const validGrades = [10, 11, 12];
@@ -47,69 +57,6 @@ const bulkCreateClasses = async (req, res) => {
   }
 };
 
-// 🔍 Get class by name (scoped by school)
-const getClassByName = async (req, res) => {
-  try {
-    const school = await resolveSchool(req);
-    if (!school) return res.status(404).json({ error: 'School not found.' });
-
-    const { name } = req.params;
-    const cls = await Class.findOne({ name, school: school._id });
-
-    if (!cls) return res.status(404).json({ error: 'Class not found.' });
-    res.status(200).json(cls);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
-
-// 📘 Get all classes or filter by grade (scoped by school)
-const getClasses = async (req, res) => {
-  try {
-    const school = await resolveSchool(req);
-    if (!school) return res.status(404).json({ error: 'School not found.' });
-
-    const { grade } = req.query;
-    const query = {
-      school: school._id,
-      ...(grade && { grade: parseInt(grade) })
-    };
-
-    const classes = await Class.find(query);
-    res.status(200).json(classes);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
-
-// ✏️ Update class by name (scoped by school)
-const updateClassByName = async (req, res) => {
-  try {
-    const school = await resolveSchool(req);
-    if (!school) return res.status(404).json({ error: 'School not found.' });
-
-    const { name } = req.params;
-    const updates = req.body;
-
-    const updatedClass = await Class.findOneAndUpdate(
-      { name, school: school._id },
-      updates,
-      { new: true, runValidators: true }
-    );
-
-    if (!updatedClass) {
-      return res.status(404).json({ error: 'Class not found' });
-    }
-
-    res.status(200).json({
-      message: 'Class updated successfully',
-      class: updatedClass
-    });
-  } catch (err) {
-    console.error('[UpdateClassByName]', err);
-    res.status(500).json({ error: 'Failed to update class' });
-  }
-};
 
 // 🗑️ Delete class by name (scoped by school)
 const deleteClassByName = async (req, res) => {
