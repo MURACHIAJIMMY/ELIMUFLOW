@@ -108,10 +108,8 @@ const getAllTracks = async (req, res) => {
     const school = await resolveSchool(req);
     if (!school) return res.status(404).json({ error: "School not found." });
 
-    const tracks = await Track.find({ school: school._id }).populate("pathway");
-    const subjects = await Subject.find({ school: school._id }).select(
-      "name code group track"
-    );
+    const tracks = await Track.find({ school: school._id }).populate("pathway", "name"); // ✅ fixed
+    const subjects = await Subject.find({ school: school._id }).select("name code group track");
 
     const trackMap = tracks.map((track) => {
       const trackSubjects = subjects
@@ -128,7 +126,7 @@ const getAllTracks = async (req, res) => {
         trackName: track.name,
         trackCode: track.code,
         description: track.description,
-        pathwayName: track.pathway?.name || null,
+        pathwayName: track.pathway?.name || null, // ✅ now populated
         subjects: trackSubjects,
       };
     });
