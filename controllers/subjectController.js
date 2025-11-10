@@ -353,7 +353,24 @@ const updateSubjectByName = async (req, res) => {
     if (!school) return res.status(404).json({ error: "School not found." });
 
     const { subjectName } = req.params;
-    const updates = req.body;
+    const updates = { ...req.body };
+
+    // Resolve pathway and track if needed
+    if (updates.pathway && typeof updates.pathway === "string") {
+      const pathwayDoc = await Pathway.findOne({ name: updates.pathway, school: school._id });
+      updates.pathway = pathwayDoc?._id;
+    }
+
+    if (updates.track && typeof updates.track === "string") {
+      const trackDoc = await Track.findOne({ code: updates.track, school: school._id });
+      updates.track = trackDoc?._id;
+    }
+
+    // Handle optional name change
+    if (updates.newName) {
+      updates.name = updates.newName.trim();
+      delete updates.newName;
+    }
 
     const subject = await Subject.findOneAndUpdate(
       { name: subjectName, school: school._id },
@@ -375,6 +392,8 @@ const updateSubjectByName = async (req, res) => {
         code: subject.code,
         group: subject.group,
         lessonsPerWeek: subject.lessonsPerWeek,
+        compulsory: subject.compulsory,
+        shortName: subject.shortName,
         pathway: subject.pathway?.name || null,
         track: subject.track
           ? { name: subject.track.name, code: subject.track.code }
@@ -382,12 +401,10 @@ const updateSubjectByName = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[updateSubjectByName]", err);
-    res.status(500).json({ error: "Failed to update subject." });
+    res.status(500).json({ error: err.message || "Failed to update subject." });
   }
 };
-
-// 📦 Bulk update subjects
+// bulk update
 const bulkUpdateSubjects = async (req, res) => {
   try {
     const school = await resolveSchool(req);
@@ -403,11 +420,23 @@ const bulkUpdateSubjects = async (req, res) => {
 
     const results = await Promise.all(
       updates.map(async ({ name, updates }) => {
+        // Resolve references
         if (updates.pathway && typeof updates.pathway === "string") {
           updates.pathway = await resolveRef(Pathway, updates.pathway);
         }
         if (updates.track && typeof updates.track === "string") {
           updates.track = await resolveRef(Track, updates.track);
+        }
+
+        // Handle optional rename
+        if (updates.newName) {
+          updates.name = updates.newName.trim();
+          delete updates.newName;
+        }
+
+        // Ensure shortName fallback
+        if (!updates.shortName && typeof name === "string") {
+          updates.shortName = name.slice(0, 3);
         }
 
         const subject = await Subject.findOneAndUpdate(
@@ -427,6 +456,8 @@ const bulkUpdateSubjects = async (req, res) => {
                 code: subject.code,
                 group: subject.group,
                 lessonsPerWeek: subject.lessonsPerWeek,
+                compulsory: subject.compulsory,
+                shortName: subject.shortName,
                 pathway: subject.pathway?.name || null,
                 track: subject.track
                   ? { name: subject.track.name, code: subject.track.code }
@@ -443,6 +474,7 @@ const bulkUpdateSubjects = async (req, res) => {
     res.status(500).json({ error: "Failed to update subjects." });
   }
 };
+
 
 // ❌ Delete subject by name
 const deleteSubjectByName = async (req, res) => {
