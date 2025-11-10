@@ -94,10 +94,16 @@ const createSubject = async (req, res) => {
 const bulkCreateSubjects = async (req, res) => {
   try {
     const school = await resolveSchool(req);
-    if (!school) return res.status(404).json({ error: "School not found." });
+    if (!school) {
+      console.warn("❌ School not found");
+      return res.status(404).json({ error: "School not found." });
+    }
 
     const rawSubjects = req.body;
+    console.log("📥 Received payload:", JSON.stringify(rawSubjects, null, 2));
+
     if (!Array.isArray(rawSubjects) || rawSubjects.length === 0) {
+      console.warn("⚠️ No subjects provided");
       return res.status(400).json({ error: "Provide an array of subject objects." });
     }
 
@@ -111,6 +117,7 @@ const bulkCreateSubjects = async (req, res) => {
     });
 
     if (!defaultPathway || !defaultTrack) {
+      console.warn("❌ Missing default pathway or track");
       return res.status(500).json({
         error: "Default pathway or track not found. Please seed them first.",
       });
@@ -120,6 +127,11 @@ const bulkCreateSubjects = async (req, res) => {
     const skippedSubjects = [];
 
     for (const raw of rawSubjects) {
+      console.log(`🔍 Resolving ${raw.name}`, {
+        pathwayName: raw.pathwayName,
+        trackCode: raw.trackCode,
+      });
+
       const pathwayDoc = raw.pathwayName
         ? await Pathway.findOne({
             name: new RegExp(`^${raw.pathwayName.trim()}$`, "i"),
@@ -134,7 +146,15 @@ const bulkCreateSubjects = async (req, res) => {
           })
         : defaultTrack;
 
+      console.log("✅ Found:", {
+        pathway: pathwayDoc?.name,
+        track: trackDoc?.code,
+      });
+
       if (!pathwayDoc || !trackDoc) {
+        console.warn(`⚠️ Skipping ${raw.name}:`, {
+          reason: !pathwayDoc ? "Missing pathway" : "Missing track",
+        });
         skippedSubjects.push({
           name: raw.name,
           reason: "Missing pathway or track",
@@ -142,7 +162,7 @@ const bulkCreateSubjects = async (req, res) => {
         continue;
       }
 
-      resolvedSubjects.push({
+      const subjectData = {
         name: raw.name,
         code: raw.code.toUpperCase(),
         group: raw.group || "Unclassified",
@@ -151,10 +171,14 @@ const bulkCreateSubjects = async (req, res) => {
         track: trackDoc._id,
         lessonsPerWeek: raw.lessonsPerWeek || 5,
         school: school._id,
-      });
+      };
+
+      console.log("📦 Prepared subject:", subjectData);
+      resolvedSubjects.push(subjectData);
     }
 
     if (resolvedSubjects.length === 0) {
+      console.warn("⛔ No valid subjects to insert", skippedSubjects);
       return res.status(400).json({ error: "No valid subjects to insert." });
     }
 
@@ -164,6 +188,7 @@ const bulkCreateSubjects = async (req, res) => {
     }).select("code");
 
     if (existing.length > 0) {
+      console.warn("⚠️ Duplicate codes found:", existing.map((e) => e.code));
       return res.status(409).json({
         error: `Duplicate subject codes: ${existing.map((e) => e.code).join(", ")}`,
       });
@@ -172,7 +197,9 @@ const bulkCreateSubjects = async (req, res) => {
     let created = [];
     try {
       created = await Subject.insertMany(resolvedSubjects, { ordered: false });
+      console.log("✅ Inserted subjects:", created.map((s) => s.name));
     } catch (insertErr) {
+      console.error("❌ Insert error:", insertErr.message);
       if (insertErr.writeErrors) {
         insertErr.writeErrors.forEach((e) => {
           skippedSubjects.push({
@@ -201,6 +228,11 @@ const bulkCreateSubjects = async (req, res) => {
       pathway: sub.pathway?.name || null,
       track: sub.track ? { name: sub.track.name, code: sub.track.code } : null,
     }));
+
+    console.log("🎯 Final response:", {
+      created: formatted.map((f) => f.LearningArea),
+      skipped: skippedSubjects,
+    });
 
     res.status(201).json({
       message: `${formatted.length} subjects created.`,
