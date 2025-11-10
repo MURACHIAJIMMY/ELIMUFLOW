@@ -23,7 +23,10 @@ const resolveSchool = async (req) => {
 const createSubject = async (req, res) => {
   try {
     const school = await resolveSchool(req);
-    if (!school) return res.status(404).json({ error: "School not found." });
+    if (!school) {
+      console.warn("❌ School not found");
+      return res.status(404).json({ error: "School not found." });
+    }
 
     const {
       name,
@@ -33,14 +36,28 @@ const createSubject = async (req, res) => {
       pathwayName,
       trackCode,
       lessonsPerWeek,
+      shortName,
     } = req.body;
+
+    console.log("📥 Received subject:", {
+      name,
+      code,
+      group,
+      compulsory,
+      pathwayName,
+      trackCode,
+      lessonsPerWeek,
+      shortName,
+    });
 
     const exists = await Subject.findOne({
       code: code.toUpperCase(),
       school: school._id,
     });
-    if (exists)
+    if (exists) {
+      console.warn("⚠️ Duplicate subject code:", code);
       return res.status(409).json({ error: "Subject code already exists." });
+    }
 
     const pathwayDoc = await Pathway.findOne({
       name: pathwayName,
@@ -52,6 +69,10 @@ const createSubject = async (req, res) => {
     });
 
     if (!pathwayDoc || !trackDoc) {
+      console.warn("⚠️ Missing pathway or track:", {
+        pathwayName,
+        trackCode,
+      });
       return res.status(404).json({ error: "Pathway or track not found." });
     }
 
@@ -63,12 +84,15 @@ const createSubject = async (req, res) => {
       pathway: pathwayDoc._id,
       track: trackDoc._id,
       lessonsPerWeek,
+      shortName: shortName?.trim() || name.slice(0, 3), // ✅ FIXED
       school: school._id,
     });
 
     const populated = await Subject.findById(subject._id)
       .populate({ path: "pathway", select: "name" })
       .populate({ path: "track", select: "name code" });
+
+    console.log("✅ Created subject:", populated.name);
 
     res.status(201).json({
       message: "Subject created.",
@@ -89,6 +113,7 @@ const createSubject = async (req, res) => {
     res.status(500).json({ error: "Failed to create subject." });
   }
 };
+
 
 // 📦 Bulk create subjects
 const bulkCreateSubjects = async (req, res) => {
@@ -170,6 +195,7 @@ const bulkCreateSubjects = async (req, res) => {
         pathway: pathwayDoc._id,
         track: trackDoc._id,
         lessonsPerWeek: raw.lessonsPerWeek || 5,
+        shortName: raw.shortName?.trim() || raw.name.slice(0, 3), // ✅ FIXED
         school: school._id,
       };
 
@@ -244,6 +270,7 @@ const bulkCreateSubjects = async (req, res) => {
     res.status(500).json({ error: err.message || "Failed to create subjects." });
   }
 };
+
 
 // ✅ Validate subject registry
 const validateSubjectRegistry = async (req, res) => {
