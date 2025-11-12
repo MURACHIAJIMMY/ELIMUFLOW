@@ -233,6 +233,7 @@ const getPaperConfigs = async (req, res) => {
 };
 
 // ✏️ Update paper config by subject name
+// ✏️ Update paper config by subject name
 const updatePaperConfigByName = async (req, res) => {
   try {
     const school = await resolveSchool(req);
@@ -243,12 +244,12 @@ const updatePaperConfigByName = async (req, res) => {
 
     const { grade, term, exam, year, papers } = req.body;
 
+    // If you validate exam presence, keep it. Otherwise, you can skip.
     const validExams = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
       school: school._id
     });
-
     if (!validExams.includes(exam)) {
       return res.status(400).json({
         error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
@@ -258,9 +259,34 @@ const updatePaperConfigByName = async (req, res) => {
     const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: school._id });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
 
+    // --- ADD: Validate and parse papers just like in create ---
+    let parsedPapers;
+    try {
+      parsedPapers = papers.map((p, i) => {
+        // Accepts either { name, outOf } or { paperNo, total }
+        if (
+          (typeof p.total === "number" && !isNaN(p.total) && p.paperNo) ||
+          (p.name && typeof p.outOf === "number" && !isNaN(p.outOf))
+        ) {
+          // Convert {name, outOf} to {paperNo, total}
+          if (p.name) {
+            const match = p.name.match(/\d+/);
+            const paperNo = match ? parseInt(match[0], 10) : i + 1;
+            return { paperNo, total: p.outOf };
+          }
+          // Already valid structure
+          return { paperNo: p.paperNo, total: p.total };
+        } else {
+          throw new Error("Each paper must include a name and numeric outOf, or paperNo and total.");
+        }
+      });
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+
     const updated = await PaperConfig.findOneAndUpdate(
       { subject: subject._id, grade, term, exam, year, school: school._id },
-      { papers },
+      { papers: parsedPapers },
       { new: true }
     ).populate('subject');
 
@@ -279,9 +305,10 @@ const updatePaperConfigByName = async (req, res) => {
     });
   } catch (err) {
     console.error('[updatePaperConfigByName]', err);
-    res.status(500).json({ error: 'Error updating paper config.' });
+    res.status(500).json({ error: err.message || 'Error updating paper config.' });
   }
 };
+
 
 // 🗑️ Delete paper config by subject name
 const deletePaperConfigByName = async (req, res) => {
