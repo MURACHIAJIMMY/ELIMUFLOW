@@ -24,6 +24,7 @@ const setPaperConfig = async (req, res) => {
 
     const { subject, grade, term, exam, year, papers } = req.body;
 
+    // ✅ Auto-create exam if missing
     const validExams = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
@@ -31,20 +32,44 @@ const setPaperConfig = async (req, res) => {
     });
 
     if (!validExams.includes(exam)) {
-      return res.status(400).json({
-        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
+      await Assessment.create({
+        exam,
+        term,
+        year: parseInt(year),
+        school: school._id
       });
     }
 
-    const exists = await PaperConfig.findOne({ subject, grade, term, exam, year, school: school._id });
-    if (exists) return res.status(409).json({ error: 'Paper config already exists for this subject and period.' });
+    const exists = await PaperConfig.findOne({
+      subject,
+      grade,
+      term,
+      exam,
+      year,
+      school: school._id
+    });
 
-    const config = await PaperConfig.create({ subject, grade, term, exam, year, papers, school: school._id });
+    if (exists) {
+      return res.status(409).json({ error: 'Paper config already exists for this subject and period.' });
+    }
+
+    const config = await PaperConfig.create({
+      subject,
+      grade,
+      term,
+      exam,
+      year,
+      papers,
+      school: school._id
+    });
+
     res.status(201).json({ message: 'Paper config created.', config });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[setPaperConfig]', err);
+    res.status(500).json({ error: 'Error creating paper config.' });
   }
 };
+
 
 // 🔐 Set paper config by subject name
 const setPaperConfigByName = async (req, res) => {
@@ -55,6 +80,7 @@ const setPaperConfigByName = async (req, res) => {
     const { subjectName } = req.params;
     const { grade, term, exam, year, papers } = req.body;
 
+    // ✅ Auto-create exam if missing
     const validExams = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
@@ -62,12 +88,18 @@ const setPaperConfigByName = async (req, res) => {
     });
 
     if (!validExams.includes(exam)) {
-      return res.status(400).json({
-        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
+      await Assessment.create({
+        exam,
+        term,
+        year: parseInt(year),
+        school: school._id
       });
     }
 
-    const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: school._id });
+    const subject = await Subject.findOne({
+      name: new RegExp(`^${subjectName}$`, 'i'),
+      school: school._id
+    });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
 
     if (!Array.isArray(papers) || papers.length === 0) {
@@ -122,6 +154,7 @@ const setPaperConfigByName = async (req, res) => {
     res.status(500).json({ error: 'Error creating paper config.' });
   }
 };
+
 
 // 🔍 Get paper config by subject name
 const getPaperConfigByName = async (req, res) => {
