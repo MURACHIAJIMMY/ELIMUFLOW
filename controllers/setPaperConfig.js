@@ -356,21 +356,8 @@ const deletePaperConfigByName = async (req, res) => {
 
     const { grade, term, exam, year } = req.query;
 
-    if (exam && term && year) {
-      const validExams = await Assessment.distinct("exam", {
-        term,
-        year: parseInt(year),
-        school: school._id
-      });
-
-      if (!validExams.includes(exam)) {
-        return res.status(400).json({
-          error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
-        });
-      }
-    }
-
-    const deleted = await PaperConfig.findOneAndDelete({
+    // Delete the paper config
+    const deletedConfig = await PaperConfig.findOneAndDelete({
       subject: subject._id,
       grade,
       term,
@@ -379,9 +366,19 @@ const deletePaperConfigByName = async (req, res) => {
       school: school._id
     });
 
-    if (!deleted) return res.status(404).json({ error: 'Config not found to delete.' });
+    if (!deletedConfig) return res.status(404).json({ error: 'Config not found to delete.' });
 
-    res.status(200).json({ message: 'Paper config deleted.' });
+    // Delete any matching assessments for this context, if you want that autoclean
+    await Assessment.deleteMany({
+      subject: subject._id,
+      grade,
+      term,
+      exam,
+      year,
+      school: school._id
+    });
+
+    res.status(200).json({ message: 'Paper config and any related assessments deleted.' });
   } catch (err) {
     console.error('[deletePaperConfigByName]', err);
     res.status(500).json({ error: 'Error deleting paper config.' });
