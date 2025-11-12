@@ -232,7 +232,7 @@ const getPaperConfigs = async (req, res) => {
   }
 };
 
-// ✏️ Update paper config by subject name
+
 // ✏️ Update paper config by subject name
 const updatePaperConfigByName = async (req, res) => {
   try {
@@ -244,7 +244,7 @@ const updatePaperConfigByName = async (req, res) => {
 
     const { grade, term, exam, year, papers } = req.body;
 
-    // If you validate exam presence, keep it. Otherwise, you can skip.
+    // Optional: Validate exam exists in Assessment (can skip if not necessary)
     const validExams = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
@@ -256,28 +256,25 @@ const updatePaperConfigByName = async (req, res) => {
       });
     }
 
-    const subject = await Subject.findOne({ name: new RegExp(`^${subjectName}$`, 'i'), school: school._id });
+    const subject = await Subject.findOne({
+      name: new RegExp(`^${subjectName}$`, 'i'),
+      school: school._id
+    });
     if (!subject) return res.status(404).json({ error: 'Subject not found.' });
 
-    // --- ADD: Validate and parse papers just like in create ---
+    // --- Validate and parse papers ---
     let parsedPapers;
     try {
       parsedPapers = papers.map((p, i) => {
         // Accepts either { name, outOf } or { paperNo, total }
-        if (
-          (typeof p.total === "number" && !isNaN(p.total) && p.paperNo) ||
-          (p.name && typeof p.outOf === "number" && !isNaN(p.outOf))
-        ) {
-          // Convert {name, outOf} to {paperNo, total}
-          if (p.name) {
-            const match = p.name.match(/\d+/);
-            const paperNo = match ? parseInt(match[0], 10) : i + 1;
-            return { paperNo, total: p.outOf };
-          }
-          // Already valid structure
+        if (p.name && typeof p.outOf === "number" && !isNaN(p.outOf)) {
+          const match = p.name.match(/\d+/);
+          const paperNo = match ? parseInt(match[0], 10) : i + 1;
+          return { paperNo, total: p.outOf };
+        } else if (typeof p.total === "number" && !isNaN(p.total) && p.paperNo) {
           return { paperNo: p.paperNo, total: p.total };
         } else {
-          throw new Error("Each paper must include a name and numeric outOf, or paperNo and total.");
+          throw new Error("Each paper must include {name, outOf} OR {paperNo, total}");
         }
       });
     } catch (err) {
