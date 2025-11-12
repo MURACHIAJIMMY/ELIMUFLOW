@@ -20,25 +20,11 @@ const resolveSchool = async (req) => {
 const setPaperConfig = async (req, res) => {
   try {
     const school = await resolveSchool(req);
-    if (!school) return res.status(404).json({ error: 'School not found.' });
+    if (!school) return res.status(404).json({ error: "School not found." });
 
     const { subject, grade, term, exam, year, papers } = req.body;
 
-    // ✅ Auto-create exam if missing
-    const validExams = await Assessment.distinct("exam", {
-      term,
-      year: parseInt(year),
-      school: school._id
-    });
-
-    if (!validExams.includes(exam)) {
-      await Assessment.create({
-        exam,
-        term,
-        year: parseInt(year),
-        school: school._id
-      });
-    }
+    // Remove Assessment auto-create logic (do NOT create empty Assessment here!)
 
     const exists = await PaperConfig.findOne({
       subject,
@@ -46,12 +32,28 @@ const setPaperConfig = async (req, res) => {
       term,
       exam,
       year,
-      school: school._id
+      school: school._id,
     });
 
     if (exists) {
-      return res.status(409).json({ error: 'Paper config already exists for this subject and period.' });
+      return res
+        .status(409)
+        .json({ error: "Paper config already exists for this subject and period." });
     }
+
+    if (!Array.isArray(papers) || papers.length === 0) {
+      return res.status(400).json({ error: "Papers must be a non-empty array." });
+    }
+
+    // Basic validation: ensure numeric outOf
+    const parsedPapers = papers.map((p, i) => {
+      if (!p.name || typeof p.outOf !== "number" || isNaN(p.outOf)) {
+        throw new Error("Each paper must include a name and numeric outOf value.");
+      }
+      const match = p.name.match(/\d+/);
+      const paperNo = match ? parseInt(match[0], 10) : i + 1;
+      return { paperNo, total: p.outOf };
+    });
 
     const config = await PaperConfig.create({
       subject,
@@ -59,61 +61,54 @@ const setPaperConfig = async (req, res) => {
       term,
       exam,
       year,
-      papers,
-      school: school._id
+      papers: parsedPapers,
+      school: school._id,
     });
 
-    res.status(201).json({ message: 'Paper config created.', config });
+    res.status(201).json({ message: "Paper config created.", config });
   } catch (err) {
-    console.error('[setPaperConfig]', err);
-    res.status(500).json({ error: 'Error creating paper config.' });
+    console.error("[setPaperConfig]", err);
+    res.status(500).json({ error: err.message || "Error creating paper config." });
   }
 };
+
 
 
 // 🔐 Set paper config by subject name
 const setPaperConfigByName = async (req, res) => {
   try {
     const school = await resolveSchool(req);
-    if (!school) return res.status(404).json({ error: 'School not found.' });
+    if (!school) return res.status(404).json({ error: "School not found." });
 
     const { subjectName } = req.params;
     const { grade, term, exam, year, papers } = req.body;
 
-    // ✅ Auto-create exam if missing
-    const validExams = await Assessment.distinct("exam", {
-      term,
-      year: parseInt(year),
-      school: school._id
-    });
-
-    if (!validExams.includes(exam)) {
-      await Assessment.create({
-        exam,
-        term,
-        year: parseInt(year),
-        school: school._id
-      });
-    }
+    // Remove Assessment auto-create logic!
 
     const subject = await Subject.findOne({
-      name: new RegExp(`^${subjectName}$`, 'i'),
-      school: school._id
+      name: new RegExp(`^${subjectName}$`, "i"),
+      school: school._id,
     });
-    if (!subject) return res.status(404).json({ error: 'Subject not found.' });
+    if (!subject) return res.status(404).json({ error: "Subject not found." });
 
     if (!Array.isArray(papers) || papers.length === 0) {
-      return res.status(400).json({ error: 'Papers must be a non-empty array.' });
+      return res.status(400).json({ error: "Papers must be a non-empty array." });
     }
 
-    const parsedPapers = papers.map((p, i) => {
-      if (!p.name || typeof p.outOf !== 'number') {
-        throw new Error('Each paper must include a name and numeric outOf value.');
-      }
-      const match = p.name.match(/\d+/);
-      const paperNo = match ? parseInt(match[0], 10) : i + 1;
-      return { paperNo, total: p.outOf };
-    });
+    // Validate and parse papers
+    let parsedPapers;
+    try {
+      parsedPapers = papers.map((p, i) => {
+        if (!p.name || typeof p.outOf !== "number" || isNaN(p.outOf)) {
+          throw new Error("Each paper must include a name and numeric outOf value.");
+        }
+        const match = p.name.match(/\d+/);
+        const paperNo = match ? parseInt(match[0], 10) : i + 1;
+        return { paperNo, total: p.outOf };
+      });
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
 
     const exists = await PaperConfig.findOne({
       subject: subject._id,
@@ -121,11 +116,13 @@ const setPaperConfigByName = async (req, res) => {
       term,
       exam,
       year,
-      school: school._id
+      school: school._id,
     });
 
     if (exists) {
-      return res.status(409).json({ error: 'Paper config already exists for this subject and period.' });
+      return res
+        .status(409)
+        .json({ error: "Paper config already exists for this subject and period." });
     }
 
     const config = await PaperConfig.create({
@@ -135,25 +132,26 @@ const setPaperConfigByName = async (req, res) => {
       exam,
       year,
       papers: parsedPapers,
-      school: school._id
+      school: school._id,
     });
 
     res.status(201).json({
-      message: 'Paper config created.',
+      message: "Paper config created.",
       config: {
         LearningArea: subject.name,
         grade,
         term,
         exam,
         year,
-        papers: parsedPapers
-      }
+        papers: parsedPapers,
+      },
     });
   } catch (err) {
-    console.error('[setPaperConfigByName]', err);
-    res.status(500).json({ error: 'Error creating paper config.' });
+    console.error("[setPaperConfigByName]", err);
+    res.status(500).json({ error: err.message || "Error creating paper config." });
   }
 };
+
 
 
 // 🔍 Get paper config by subject name
