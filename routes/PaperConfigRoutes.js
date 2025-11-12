@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { verifyToken, checkRole } = require('../middleware/authMiddleware');
-
+const Assessment = require('../models/assessment');
+const resolveSchool = require('../utils/schoolResolver'); 
 const {
   setPaperConfig,
   setPaperConfigByName,
@@ -55,30 +56,40 @@ router.delete(
   checkRole(['admin']),
   deletePaperConfigByName
 );
-// // 🔍 Teacher or admin fetches distinct exams for a given term and year
-// router.get(
-//   "/exams",
-//   verifyToken,
-//   checkRole(["admin", "teacher"]),
-//   async (req, res) => {
-//     try {
-//       const school = await resolveSchool(req);
-//       if (!school) return res.status(404).json({ error: "School not found." });
 
-//       const { term, year } = req.query;
-//       const exams = await Assessment.distinct("exam", {
-//         term,
-//         year: parseInt(year),
-//         school: school._id
-//       });
+// 🔍 Teacher or admin fetches distinct exams for a given term and year
+router.get(
+  "/exams",
+  verifyToken,
+  checkRole(["admin", "teacher"]),
+  async (req, res) => {
+    try {
+      const school = await resolveSchool(req);
+      if (!school) {
+        console.warn("[/exams] No school resolved");
+        return res.status(404).json({ error: "School not found." });
+      }
 
-//       res.json(exams);
-//     } catch (err) {
-//       console.error("[GET /exams]", err);
-//       res.status(500).json({ error: "Failed to fetch exams." });
-//     }
-//   }
-// );
+      const { term, year } = req.query;
+      if (!term || !year) {
+        return res.status(400).json({ error: "Term and year are required." });
+      }
+
+      console.log("[/exams] Fetching exams for:", { term, year, school: school._id });
+
+      const exams = await Assessment.distinct("exam", {
+        term,
+        year: parseInt(year),
+        school: school._id
+      });
+
+      res.json(exams);
+    } catch (err) {
+      console.error("[GET /exams]", err);
+      res.status(500).json({ error: "Failed to fetch exams." });
+    }
+  }
+);
 
 
 
