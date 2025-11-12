@@ -24,8 +24,29 @@ const setPaperConfig = async (req, res) => {
 
     const { subject, grade, term, exam, year, papers } = req.body;
 
-    // Remove Assessment auto-create logic (do NOT create empty Assessment here!)
+    if (!Array.isArray(papers) || papers.length === 0) {
+      return res.status(400).json({ error: "Papers must be a non-empty array." });
+    }
 
+    // Validate papers - support { name, outOf } or { paperNo, total }
+    let parsedPapers;
+    try {
+      parsedPapers = papers.map((p, i) => {
+        if (p.name && typeof p.outOf === "number" && !isNaN(p.outOf)) {
+          const match = p.name.match(/\d+/);
+          const paperNo = match ? parseInt(match[0], 10) : i + 1;
+          return { paperNo, total: p.outOf };
+        } else if (typeof p.total === "number" && !isNaN(p.total) && p.paperNo) {
+          return { paperNo: p.paperNo, total: p.total };
+        } else {
+          throw new Error("Each paper must include {name, outOf} OR {paperNo, total}");
+        }
+      });
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+
+    // Conflict check
     const exists = await PaperConfig.findOne({
       subject,
       grade,
@@ -34,27 +55,13 @@ const setPaperConfig = async (req, res) => {
       year,
       school: school._id,
     });
-
     if (exists) {
       return res
         .status(409)
         .json({ error: "Paper config already exists for this subject and period." });
     }
 
-    if (!Array.isArray(papers) || papers.length === 0) {
-      return res.status(400).json({ error: "Papers must be a non-empty array." });
-    }
-
-    // Basic validation: ensure numeric outOf
-    const parsedPapers = papers.map((p, i) => {
-      if (!p.name || typeof p.outOf !== "number" || isNaN(p.outOf)) {
-        throw new Error("Each paper must include a name and numeric outOf value.");
-      }
-      const match = p.name.match(/\d+/);
-      const paperNo = match ? parseInt(match[0], 10) : i + 1;
-      return { paperNo, total: p.outOf };
-    });
-
+    // Create new PaperConfig
     const config = await PaperConfig.create({
       subject,
       grade,
@@ -65,12 +72,29 @@ const setPaperConfig = async (req, res) => {
       school: school._id,
     });
 
-    res.status(201).json({ message: "Paper config created.", config });
+    // Update all matching Assessments that may already exist
+    await Assessment.updateMany(
+      {
+        subject,
+        grade,
+        term,
+        exam,
+        year,
+        school: school._id
+      },
+      { papers: parsedPapers }
+    );
+
+    res.status(201).json({
+      message: "Paper config created (and all matching assessments updated).",
+      config
+    });
   } catch (err) {
     console.error("[setPaperConfig]", err);
     res.status(500).json({ error: err.message || "Error creating paper config." });
   }
 };
+
 
 
 
@@ -82,8 +106,6 @@ const setPaperConfigByName = async (req, res) => {
 
     const { subjectName } = req.params;
     const { grade, term, exam, year, papers } = req.body;
-
-    // Remove Assessment auto-create logic!
 
     const subject = await Subject.findOne({
       name: new RegExp(`^${subjectName}$`, "i"),
@@ -99,17 +121,21 @@ const setPaperConfigByName = async (req, res) => {
     let parsedPapers;
     try {
       parsedPapers = papers.map((p, i) => {
-        if (!p.name || typeof p.outOf !== "number" || isNaN(p.outOf)) {
-          throw new Error("Each paper must include a name and numeric outOf value.");
+        if (p.name && typeof p.outOf === "number" && !isNaN(p.outOf)) {
+          const match = p.name.match(/\d+/);
+          const paperNo = match ? parseInt(match[0], 10) : i + 1;
+          return { paperNo, total: p.outOf };
+        } else if (typeof p.total === "number" && !isNaN(p.total) && p.paperNo) {
+          return { paperNo: p.paperNo, total: p.total };
+        } else {
+          throw new Error("Each paper must include {name, outOf} OR {paperNo, total}");
         }
-        const match = p.name.match(/\d+/);
-        const paperNo = match ? parseInt(match[0], 10) : i + 1;
-        return { paperNo, total: p.outOf };
       });
     } catch (err) {
       return res.status(400).json({ error: err.message });
     }
 
+    // Conflict check
     const exists = await PaperConfig.findOne({
       subject: subject._id,
       grade,
@@ -118,13 +144,13 @@ const setPaperConfigByName = async (req, res) => {
       year,
       school: school._id,
     });
-
     if (exists) {
       return res
         .status(409)
         .json({ error: "Paper config already exists for this subject and period." });
     }
 
+    // Create new PaperConfig
     const config = await PaperConfig.create({
       subject: subject._id,
       grade,
@@ -135,8 +161,21 @@ const setPaperConfigByName = async (req, res) => {
       school: school._id,
     });
 
+    // Update all matching Assessments to use the new papers schema
+    await Assessment.updateMany(
+      {
+        subject: subject._id,
+        grade,
+        term,
+        exam,
+        year,
+        school: school._id
+      },
+      { papers: parsedPapers }
+    );
+
     res.status(201).json({
-      message: "Paper config created.",
+      message: "Paper config created (and all matching assessments updated).",
       config: {
         LearningArea: subject.name,
         grade,
@@ -151,8 +190,6 @@ const setPaperConfigByName = async (req, res) => {
     res.status(500).json({ error: err.message || "Error creating paper config." });
   }
 };
-
-
 
 // 🔍 Get paper config by subject name
 const getPaperConfigByName = async (req, res) => {
@@ -241,20 +278,7 @@ const updatePaperConfigByName = async (req, res) => {
 
     const rawSubject = decodeURIComponent(req.params.subjectName).trim();
     const subjectName = rawSubject.replace(/\s+/g, " ");
-
     const { grade, term, exam, year, papers } = req.body;
-
-    // Optional: Validate exam exists in Assessment (can skip if not necessary)
-    const validExams = await Assessment.distinct("exam", {
-      term,
-      year: parseInt(year),
-      school: school._id
-    });
-    if (!validExams.includes(exam)) {
-      return res.status(400).json({
-        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(', ')}`
-      });
-    }
 
     const subject = await Subject.findOne({
       name: new RegExp(`^${subjectName}$`, 'i'),
@@ -266,7 +290,6 @@ const updatePaperConfigByName = async (req, res) => {
     let parsedPapers;
     try {
       parsedPapers = papers.map((p, i) => {
-        // Accepts either { name, outOf } or { paperNo, total }
         if (p.name && typeof p.outOf === "number" && !isNaN(p.outOf)) {
           const match = p.name.match(/\d+/);
           const paperNo = match ? parseInt(match[0], 10) : i + 1;
@@ -281,6 +304,7 @@ const updatePaperConfigByName = async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
 
+    // --- Update the PaperConfig ---
     const updated = await PaperConfig.findOneAndUpdate(
       { subject: subject._id, grade, term, exam, year, school: school._id },
       { papers: parsedPapers },
@@ -289,8 +313,21 @@ const updatePaperConfigByName = async (req, res) => {
 
     if (!updated) return res.status(404).json({ error: 'Paper config not found to update.' });
 
+    // --- Update all matching Assessments (automatic update of exam schema for all marks) ---
+    await Assessment.updateMany(
+      {
+        subject: subject._id,
+        grade,
+        term,
+        exam,
+        year,
+        school: school._id
+      },
+      { papers: parsedPapers }
+    );
+
     res.status(200).json({
-      message: 'Paper config updated.',
+      message: 'Paper config updated (and all matching assessments updated).',
       config: {
         LearningArea: updated.subject?.name,
         grade: updated.grade,
