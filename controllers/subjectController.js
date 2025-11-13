@@ -290,18 +290,23 @@ const getSubjectsByPathwayTrack = async (req, res) => {
 };
 
 // 📄 Get all subjects
+// 📄 Get all subjects
 const getAllSubjects = async (req, res) => {
   try {
     const school = await resolveSchool(req);
     if (!school) return res.status(404).json({ error: "School not found." });
 
+    // Include _id!
     const subjects = await Subject.find({ school: school._id })
-      .select("name code group lessonsPerWeek compulsory")
+      .select("_id name code group lessonsPerWeek compulsory")
       .populate({ path: "pathway", select: "name" })
       .populate({ path: "track", select: "name code" });
 
+    // Keep _id in object!
     const formatted = subjects.map((sub) => ({
+      _id: sub._id,                          // <--- add this field
       LearningArea: sub.name,
+      name: sub.name,
       code: sub.code,
       group: sub.group,
       compulsory: sub.compulsory ?? false,
@@ -316,6 +321,7 @@ const getAllSubjects = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch subjects." });
   }
 };
+
 
 // 📄 Get compulsory subjects
 const getCompulsorySubjects = async (req, res) => {
