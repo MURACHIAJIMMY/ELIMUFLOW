@@ -68,19 +68,19 @@ const enterMarks = async (req, res) => {
         .json({ error: "Missing required fields or invalid marks format" });
     }
 
-    const validExams = await Assessment.distinct("exam", {
-      term,
-      year: parseInt(year),
-      school: school._id,
-    });
+    // const validExams = await Assessment.distinct("exam", {
+    //   term,
+    //   year: parseInt(year),
+    //   school: school._id,
+    // });
 
-    if (!validExams.includes(exam)) {
-      return res.status(400).json({
-        error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(
-          ", "
-        )}`,
-      });
-    }
+    // if (!validExams.includes(exam)) {
+    //   return res.status(400).json({
+    //     error: `Exam '${exam}' not recognized for ${term} ${year}. Valid exams: ${validExams.join(
+    //       ", "
+    //     )}`,
+    //   });
+    // }
 
     const { resolvedClassId, resolvedSubjectId } = await resolveClassAndSubject(
       {
