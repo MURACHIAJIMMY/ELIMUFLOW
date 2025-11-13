@@ -246,28 +246,37 @@ const getPaperConfigByName = async (req, res) => {
 };
 
 // 🔍 Get all paper configs
+// 🔍 Get all paper configs (returns subject _id, name AND school _id)
 const getPaperConfigs = async (req, res) => {
   try {
     const school = await resolveSchool(req);
     if (!school) return res.status(404).json({ error: 'School not found.' });
 
-    const configs = await PaperConfig.find({ school: school._id }).populate('subject');
+    // Populate subject with _id and name, but also include root subject and school ids
+    const configs = await PaperConfig.find({ school: school._id })
+      .populate('subject', 'name _id')
+      .select('subject grade term exam year papers school'); // Ensure root id fields included
 
+    // Each config object MUST have subject: {_id, name} and school at root
     const formatted = configs.map(cfg => ({
-      LearningArea: cfg.subject?.name,
+      subject: cfg.subject?._id || cfg.subject,           // _id (ObjectId or string)
+      subjectName: cfg.subject?.name || null,             // human name for dropdown/debug
       grade: cfg.grade,
       term: cfg.term,
       exam: cfg.exam,
       year: cfg.year,
-      papers: cfg.papers
+      papers: cfg.papers,
+      school: cfg.school,                                 // school ObjectId
     }));
 
     res.status(200).json(formatted);
+
   } catch (err) {
     console.error('[getPaperConfigs]', err);
     res.status(500).json({ error: 'Error fetching paper configs.' });
   }
 };
+
 
 
 // ✏️ Update paper config by subject name
