@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const puppeteer = require("puppeteer");
 const path = require("path");
+
 // Models
 const Student = require("../models/student");
 const Subject = require("../models/subject");
@@ -583,7 +584,8 @@ const fetchAssessments = async (req, res) => {
   }
 };
 
-// Singleton Puppeteer browser instance to reuse across requests
+
+// Singleton Puppeteer browser instance for reuse
 let browserPromise = null;
 async function getBrowser() {
   if (!browserPromise) {
@@ -599,104 +601,83 @@ async function getBrowser() {
 }
 
 const generatePDF = async (reportForms, metadata) => {
-  // Generate QR codes for each student's admission number
+  // Generate QR codes per report
   for (const report of reportForms) {
     report.qrCodeUrl = await generateQRCode(
-      `https://elimu.ke/verify?admNo=${encodeURIComponent(report.admNo)}&term=${encodeURIComponent(
-        metadata.term
-      )}&year=${encodeURIComponent(metadata.year)}&exam=${encodeURIComponent(metadata.examType)}`
+      `https://elimu.ke/verify?admNo=${encodeURIComponent(report.admNo)}&term=${encodeURIComponent(metadata.term)}&year=${encodeURIComponent(metadata.year)}&exam=${encodeURIComponent(metadata.examType)}`
     );
   }
 
-  // Compose the HTML string dynamically, injecting all report data and QR code images
   const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <title>Report Form</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    header { text-align: center; }
-    .school-logo { max-height: 80px; }
-    h1 { color: #2c3e50; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px;}
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-    th { background-color: #2980b9; color: white; }
-    .qr-code { margin-top: 15px; }
-    .section { margin-bottom: 40px; }
-  </style>
-</head>
-<body>
-  <header>
-    <img class="school-logo" src="${metadata.schoolLogo}" alt="School Logo" />
-    <h1>${metadata.schoolName}</h1>
-    <p>${metadata.schoolLocation}</p>
-    <p>${metadata.schoolContact} | ${metadata.schoolEmail}</p>
-    <p><em>${metadata.schoolMotto}</em></p>
-    <h2>Report Form - ${metadata.term} ${metadata.year} - ${metadata.examType}</h2>
-  </header>
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Report Form</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 20px; }
+      header { text-align: center; }
+      .school-logo { max-height: 80px; }
+      h1 { color: #2c3e50; }
+      table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px;}
+      th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+      th { background-color: #2980b9; color: white; }
+      .qr-code { margin-top: 15px; }
+      .section { margin-bottom: 40px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img class="school-logo" src="${metadata.schoolLogo}" alt="School Logo" />
+      <h1>${metadata.schoolName}</h1>
+      <p>${metadata.schoolLocation}</p>
+      <p>${metadata.schoolContact} | ${metadata.schoolEmail}</p>
+      <p><em>${metadata.schoolMotto}</em></p>
+      <h2>Report Form - ${metadata.term} ${metadata.year} - ${metadata.examType}</h2>
+    </header>
 
-  ${reportForms
-    .map(
-      (report) => `
-  <section class="section">
-    <h3>${report.name} (Admission No: ${report.admNo})</h3>
-    <p>Class: ${report.class} | Pathway: ${report.pathway}</p>
+    ${reportForms.map(report => `
+      <section class="section">
+        <h3>${report.name} (Admission No: ${report.admNo})</h3>
+        <p>Class: ${report.class} | Pathway: ${report.pathway}</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Subject</th>
+              ${metadata.examScope.map((exam) => `<th>${exam}</th>`).join('')}
+              <th>Total</th>
+              <th>Grade</th>
+              <th>Remark</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${report.scores.map(score => `
+              <tr>
+                <td>${score.learningArea}</td>
+                ${metadata.examScope.map(exam => `<td>${score.exams[exam] !== undefined ? score.exams[exam] : '-'}</td>`).join('')}
+                <td>${score.total !== null ? score.total : '-'}</td>
+                <td>${score.grade || '-'}</td>
+                <td>${score.remark}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Subject</th>
-          ${metadata.examScope
-            .map((exam) => `<th>${exam}</th>`)
-            .join("")}
-          <th>Total</th>
-          <th>Grade</th>
-          <th>Remark</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${report.scores
-          .map(
-            (score) => `
-        <tr>
-          <td>${score.learningArea}</td>
-          ${metadata.examScope
-            .map(
-              (exam) =>
-                `<td>${
-                  score.exams[exam] !== undefined ? score.exams[exam] : "-"
-                }</td>`
-            )
-            .join("")}
-          <td>${score.total !== null ? score.total : "-"}</td>
-          <td>${score.grade || "-"}</td>
-          <td>${score.remark}</td>
-        </tr>`
-          )
-          .join("")}
-      </tbody>
-    </table>
+        <p><strong>Mean Score:</strong> ${report.meanScore ?? '-'}</p>
+        <p><strong>Grade:</strong> ${report.grade ?? '-'}</p>
+        <p><strong>Level:</strong> ${report.level ?? '-'}</p>
+        <p><strong>Summary Remark:</strong> ${report.summaryRemark ?? '-'}</p>
+        <p><strong>Teacher's Comment:</strong> ${report.classTeacherComment ?? '-'}</p>
+        <p><strong>Principal's Comment:</strong> ${report.principalComment ?? '-'}</p>
 
-    <p><strong>Mean Score:</strong> ${report.meanScore ?? "-"}</p>
-    <p><strong>Grade:</strong> ${report.grade ?? "-"}</p>
-    <p><strong>Level:</strong> ${report.level ?? "-"}</p>
-    <p><strong>Summary Remark:</strong> ${report.summaryRemark ?? "-"}</p>
-    <p><strong>Teacher's Comment:</strong> ${report.classTeacherComment ?? "-"}</p>
-    <p><strong>Principal's Comment:</strong> ${report.principalComment ?? "-"}</p>
-
-    <div class="qr-code">
-      <img src="${report.qrCodeUrl}" alt="QR Code for report verification" width="120" />
-      <p>Scan to verify report</p>
-    </div>
-  </section>
-  `
-    )
-    .join("")}
-</body>
-</html>
-`;
+        <div class="qr-code">
+          <img src="${report.qrCodeUrl}" alt="QR Code for report verification" width="120" />
+          <p>Scan to verify report</p>
+        </div>
+      </section>
+    `).join('')}
+  </body>
+  </html>`;
 
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -2087,6 +2068,7 @@ module.exports = {
   updateMarks,
   fetchAssessments,
   generateReportForm,
+  generatePDF,
   generateBroadsheetUnified,
   generateBroadsheetBundle,
   getGradeDistributionUnified,
