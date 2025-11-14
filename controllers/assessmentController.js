@@ -514,6 +514,72 @@ const updateMarks = async (req, res) => {
     res.status(500).json({ error: "Server error during mark update" });
   }
 };
+// 📝 Fetch assessments for students in a class for a specific subject, term, exam, year
+const fetchAssessments = async (req, res) => {
+  try {
+    const school = await resolveSchool(req);
+    if (!school) return res.status(404).json({ error: "School not found." });
+
+    const {
+      classId,
+      subjectId,
+      subjectName,
+      exam,
+      term,
+      year,
+    } = req.query;
+
+    if (
+      !term ||
+      !exam ||
+      !year ||
+      (!(classId || req.query.className)) ||
+      !(subjectId || subjectName)
+    ) {
+      return res.status(400).json({ error: "Missing required query parameters" });
+    }
+
+    // Resolve subject and class IDs if only names provided
+    const resolvedSub = subjectId
+      ? subjectId
+      : (await Subject.findOne({ name: subjectName, school: school._id }))?._id;
+
+    const resolvedClass = classId
+      ? classId
+      : (await Class.findOne({ name: req.query.className, school: school._id }))?._id;
+
+    if (!resolvedSub || !resolvedClass) {
+      return res.status(404).json({ error: "Subject or Class not found" });
+    }
+
+    // Query assessments
+    const assessments = await Assessment.find({
+      school: school._id,
+      class: resolvedClass,
+      subject: resolvedSub,
+      term,
+      exam,
+      year: parseInt(year)
+    }).populate('student', 'admNo name');
+
+    // Prepare response format: list of { admNo, name, papers }
+    const response = assessments.map(assess => ({
+      admNo: assess.student.admNo,
+      name: assess.student.name,
+      papers: assess.papers.map(p => ({
+        paperNo: p.paperNo,
+        score: p.score,
+        total: p.total
+      })),
+    }));
+
+    res.status(200).json(response);
+
+  } catch (error) {
+    console.error("Error fetching assessments:", error);
+    res.status(500).json({ error: "Server error fetching assessments" });
+  }
+};
 
 // 📝 Generate detailed report forms for all/single students in a class for a specific term, exam, year
 const generateReportForm = async (req, res) => {
@@ -2051,6 +2117,7 @@ const getAssessmentByAdmNo = async (req, res) => {
 module.exports = {
   enterMarks,
   updateMarks,
+  fetchAssessments,
   generateReportForm,
   generateBroadsheetUnified,
   generateBroadsheetBundle,
