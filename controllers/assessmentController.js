@@ -583,10 +583,7 @@ const fetchAssessments = async (req, res) => {
   }
 };
 
-// 📝 Generate detailed report forms for all/single students in a class for a specific term, exam, year
-
-
-// Singleton Puppeteer browser instance
+// Singleton Puppeteer browser instance to reuse across requests
 let browserPromise = null;
 async function getBrowser() {
   if (!browserPromise) {
@@ -602,13 +599,104 @@ async function getBrowser() {
 }
 
 const generatePDF = async (reportForms, metadata) => {
-  // examScope taken dynamically from metadata.examType here:
-  const examScope = metadata.examScope ?? [];
+  // Generate QR codes for each student's admission number
+  for (const report of reportForms) {
+    report.qrCodeUrl = await generateQRCode(
+      `https://elimu.ke/verify?admNo=${encodeURIComponent(report.admNo)}&term=${encodeURIComponent(
+        metadata.term
+      )}&year=${encodeURIComponent(metadata.year)}&exam=${encodeURIComponent(metadata.examType)}`
+    );
+  }
 
-  // Build your HTML dynamically based on reportForms and metadata here (omitted for brevity)
+  // Compose the HTML string dynamically, injecting all report data and QR code images
   const html = `
-    ... your full styled HTML report template using reportForms, metadata, examScope ...
-  `;
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Report Form</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    header { text-align: center; }
+    .school-logo { max-height: 80px; }
+    h1 { color: #2c3e50; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px;}
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background-color: #2980b9; color: white; }
+    .qr-code { margin-top: 15px; }
+    .section { margin-bottom: 40px; }
+  </style>
+</head>
+<body>
+  <header>
+    <img class="school-logo" src="${metadata.schoolLogo}" alt="School Logo" />
+    <h1>${metadata.schoolName}</h1>
+    <p>${metadata.schoolLocation}</p>
+    <p>${metadata.schoolContact} | ${metadata.schoolEmail}</p>
+    <p><em>${metadata.schoolMotto}</em></p>
+    <h2>Report Form - ${metadata.term} ${metadata.year} - ${metadata.examType}</h2>
+  </header>
+
+  ${reportForms
+    .map(
+      (report) => `
+  <section class="section">
+    <h3>${report.name} (Admission No: ${report.admNo})</h3>
+    <p>Class: ${report.class} | Pathway: ${report.pathway}</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Subject</th>
+          ${metadata.examScope
+            .map((exam) => `<th>${exam}</th>`)
+            .join("")}
+          <th>Total</th>
+          <th>Grade</th>
+          <th>Remark</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${report.scores
+          .map(
+            (score) => `
+        <tr>
+          <td>${score.learningArea}</td>
+          ${metadata.examScope
+            .map(
+              (exam) =>
+                `<td>${
+                  score.exams[exam] !== undefined ? score.exams[exam] : "-"
+                }</td>`
+            )
+            .join("")}
+          <td>${score.total !== null ? score.total : "-"}</td>
+          <td>${score.grade || "-"}</td>
+          <td>${score.remark}</td>
+        </tr>`
+          )
+          .join("")}
+      </tbody>
+    </table>
+
+    <p><strong>Mean Score:</strong> ${report.meanScore ?? "-"}</p>
+    <p><strong>Grade:</strong> ${report.grade ?? "-"}</p>
+    <p><strong>Level:</strong> ${report.level ?? "-"}</p>
+    <p><strong>Summary Remark:</strong> ${report.summaryRemark ?? "-"}</p>
+    <p><strong>Teacher's Comment:</strong> ${report.classTeacherComment ?? "-"}</p>
+    <p><strong>Principal's Comment:</strong> ${report.principalComment ?? "-"}</p>
+
+    <div class="qr-code">
+      <img src="${report.qrCodeUrl}" alt="QR Code for report verification" width="120" />
+      <p>Scan to verify report</p>
+    </div>
+  </section>
+  `
+    )
+    .join("")}
+</body>
+</html>
+`;
 
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -619,20 +707,19 @@ const generatePDF = async (reportForms, metadata) => {
   return pdfBuffer;
 };
 
+
 const generateReportForm = async (req, res) => {
   try {
     const { admNo, className, term, year, exam, format } = req.query;
 
-    if (!term || !year || !exam) {
+    if (!term || !year || !exam)
       return res.status(400).json({
         error: "Missing required parameters: term, year, and exam must be specified",
       });
-    }
-    if (!admNo && !className) {
+    if (!admNo && !className)
       return res.status(400).json({
         error: "Provide either admNo for single report or className for bulk report",
       });
-    }
 
     const school = await resolveSchool(req);
     if (!school) return res.status(404).json({ error: "School not found" });
@@ -649,31 +736,31 @@ const generateReportForm = async (req, res) => {
       examType: exam,
     };
 
+    // Dynamically get all exams for the term and year
     const examScope = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
       school: school._id,
     });
-    metadata.examScope = examScope; // add examScope to metadata for HTML usage
+    metadata.examScope = examScope;
 
     const generateQRUrl = (admNo) =>
       `https://elimu.ke/verify?admNo=${admNo}&term=${encodeURIComponent(
         term
       )}&year=${year}&exam=${encodeURIComponent(exam)}`;
 
-    // buildMultiGradeSummary and buildReportForms as in your original code
-    // populateStudentWithClass as in your original code
+    // Your existing buildMultiGradeSummary and buildReportForms logic should be here
 
     let students, assessments, reportForms;
 
     if (admNo) {
+      // Single student report generation logic
       const student = await Student.findOne({ admNo, school: school._id })
         .populate("class", "name")
         .populate("pathway", "name")
         .select("admNo name class pathway");
 
-      if (!student)
-        return res.status(404).json({ error: "Student not found" });
+      if (!student) return res.status(404).json({ error: "Student not found" });
 
       const classId = student.class?._id || student.class;
       students = await Student.find({ class: classId, school: school._id })
@@ -697,8 +784,7 @@ const generateReportForm = async (req, res) => {
       reportForms = await buildReportForms(students, assessments, student.class.name);
 
       const report = reportForms.find((r) => r.admNo === admNo);
-      if (!report)
-        return res.status(404).json({ error: "Report not found for student" });
+      if (!report) return res.status(404).json({ error: "Report not found for student" });
 
       if (format === "pdf") {
         const pdfBuffer = await generatePDF([report], metadata);
@@ -713,6 +799,7 @@ const generateReportForm = async (req, res) => {
     }
 
     if (className) {
+      // Bulk class report generation logic
       const classDoc = await Class.findOne({
         name: new RegExp(`^${className}$`, "i"),
         school: school._id,
@@ -762,7 +849,6 @@ const generateReportForm = async (req, res) => {
     res.status(500).json({ error: "Error generating report forms" });
   }
 };
-
 
 // 📄 Generate broadsheet for class(es) in a term, exam, year, and pathway (unified)
 const generateBroadsheetUnified = async (req, res) => {
