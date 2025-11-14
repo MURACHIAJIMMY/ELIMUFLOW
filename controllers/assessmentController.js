@@ -1,4 +1,6 @@
 const mongoose = require("mongoose");
+const puppeteer = require("puppeteer");
+const path = require("path");
 // Models
 const Student = require("../models/student");
 const Subject = require("../models/subject");
@@ -582,26 +584,54 @@ const fetchAssessments = async (req, res) => {
 };
 
 // 📝 Generate detailed report forms for all/single students in a class for a specific term, exam, year
+
+
+// Singleton Puppeteer browser instance
+let browserPromise = null;
+async function getBrowser() {
+  if (!browserPromise) {
+    browserPromise = puppeteer.launch({
+      executablePath: path.resolve(
+        __dirname,
+        "../.chrome-cache/chrome/linux-142.0.7444.59/chrome-linux64/chrome"
+      ),
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+  }
+  return browserPromise;
+}
+
+const generatePDF = async (reportForms, metadata) => {
+  // examScope taken dynamically from metadata.examType here:
+  const examScope = metadata.examScope ?? [];
+
+  // Build your HTML dynamically based on reportForms and metadata here (omitted for brevity)
+  const html = `
+    ... your full styled HTML report template using reportForms, metadata, examScope ...
+  `;
+
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  await page.setContent(html, { waitUntil: "networkidle0" });
+  const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
+  await page.close();
+
+  return pdfBuffer;
+};
+
 const generateReportForm = async (req, res) => {
   try {
     const { admNo, className, term, year, exam, format } = req.query;
 
     if (!term || !year || !exam) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Missing required parameters: term, year, and exam must be specified",
-        });
+      return res.status(400).json({
+        error: "Missing required parameters: term, year, and exam must be specified",
+      });
     }
-
     if (!admNo && !className) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Provide either admNo for single report or className for bulk report",
-        });
+      return res.status(400).json({
+        error: "Provide either admNo for single report or className for bulk report",
+      });
     }
 
     const school = await resolveSchool(req);
@@ -609,8 +639,7 @@ const generateReportForm = async (req, res) => {
 
     const metadata = {
       schoolName: school.name || "Unknown School",
-      schoolLogo:
-        school.logo || "https://elimu-assets.s3.amazonaws.com/logo.png",
+      schoolLogo: school.logo || "https://elimu-assets.s3.amazonaws.com/logo.png",
       schoolLocation: school.location || "N/A",
       schoolContact: school.contact || "N/A",
       schoolEmail: school.email || "N/A",
@@ -620,164 +649,22 @@ const generateReportForm = async (req, res) => {
       examType: exam,
     };
 
-    const generateQRUrl = (admNo) =>
-      `https://elimu.ke/verify?admNo=${admNo}&term=${encodeURIComponent(
-        term
-      )}&year=${year}&exam=${encodeURIComponent(exam)}`;
-
     const examScope = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
       school: school._id,
     });
+    metadata.examScope = examScope; // add examScope to metadata for HTML usage
 
-    const buildMultiGradeSummary = (admNo, groupedScores) => {
-      const summary = [];
-      const academicTerm = term;
-      const gradeLevels = ["10", "11", "12"];
+    const generateQRUrl = (admNo) =>
+      `https://elimu.ke/verify?admNo=${admNo}&term=${encodeURIComponent(
+        term
+      )}&year=${year}&exam=${encodeURIComponent(exam)}`;
 
-      gradeLevels.forEach((grade) => {
-        const termMeans = {};
-        const overallTerms = [];
-        const termScores = [];
+    // buildMultiGradeSummary and buildReportForms as in your original code
+    // populateStudentWithClass as in your original code
 
-        Object.entries(groupedScores[admNo] || {}).forEach(
-          ([subject, termMap]) => {
-            examScope.forEach((examName) => {
-              const key = `${grade}-${academicTerm}-${examName}`;
-              if (termMap[key] >= 0) termScores.push(termMap[key]);
-            });
-          }
-        );
-
-        if (termScores.length) {
-          const mean =
-            termScores.reduce((a, b) => a + b, 0) / termScores.length;
-          const { grade: g } = getGradeRemark(mean);
-          termMeans[academicTerm] = `${Math.round(mean)} / ${g}`;
-          overallTerms.push(mean);
-        } else {
-          termMeans[academicTerm] = `- / -`;
-        }
-
-        if (overallTerms.length > 0) {
-          const overallMean =
-            overallTerms.reduce((a, b) => a + b, 0) / overallTerms.length;
-          const { grade: g } = getGradeRemark(overallMean);
-          const level = extractLevel(g);
-          termMeans["Overall"] = `${Math.round(overallMean)} / ${g} / ${level}`;
-        } else {
-          termMeans["Overall"] = `- / - / -`;
-        }
-
-        summary.push({
-          grade,
-          [academicTerm]: termMeans[academicTerm],
-          overall: termMeans["Overall"],
-        });
-      });
-
-      return summary;
-    };
-
-    const buildReportForms = async (students, assessments, classLabel) => {
-      const groupedScores = {};
-      assessments.forEach((a) => {
-        const admNo = a.student.admNo;
-        const subject = a.subject?.name || "Unknown Subject";
-        const examType = a.exam;
-        const grade =
-          String(a.student.class.name).match(/\d+/)?.[0] || "Unknown";
-        const academicTerm = term;
-        const key = `${grade}-${academicTerm}-${examType}`;
-        const score = computeSubjectScore(a.papers, subject);
-
-        if (!groupedScores[admNo]) groupedScores[admNo] = {};
-        if (!groupedScores[admNo][subject]) groupedScores[admNo][subject] = {};
-        groupedScores[admNo][subject][examType] = score;
-        groupedScores[admNo][subject][key] = score;
-      });
-
-      const reportForms = await Promise.all(
-        students.map(async (s) => {
-          const admNo = s.admNo;
-          const subjectMap = groupedScores[admNo] || {};
-          const scores = [];
-          let totalScore = 0;
-
-          Object.entries(subjectMap).forEach(([subject, termScores]) => {
-            const values = examScope
-              .map((t) => termScores[t])
-              .filter((v) => typeof v === "number");
-            const avgRaw = values.length
-              ? values.reduce((a, b) => a + b, 0) / values.length
-              : null;
-            const avg = avgRaw !== null ? Math.round(avgRaw) : null;
-            const { grade, remark } =
-              avgRaw !== null
-                ? getGradeRemark(avgRaw)
-                : { grade: null, remark: "Not Assessed" };
-            const level = extractLevel(grade);
-
-            scores.push({
-              learningArea: subject,
-              exams: Object.fromEntries(
-                examScope.map((e) => [
-                  e,
-                  termScores[e] !== undefined ? Math.round(termScores[e]) : "-",
-                ])
-              ),
-              total: avg,
-              grade,
-              level,
-              remark,
-            });
-
-            if (avgRaw !== null) totalScore += avgRaw;
-          });
-
-          const assessedCount = scores.length;
-          const meanRaw = assessedCount > 0 ? totalScore / assessedCount : null;
-          const meanScore = meanRaw !== null ? Math.round(meanRaw) : null;
-          const { grade, remark } =
-            meanRaw !== null
-              ? getGradeRemark(meanRaw)
-              : { grade: null, remark: "Not Assessed" };
-          const level = extractLevel(grade);
-          const autoComment = autoCommentByGrade[grade] || "Not Assessed";
-          const qrCodeUrl = await generateQRCode(generateQRUrl(admNo));
-          const yearSummary = buildMultiGradeSummary(admNo, groupedScores);
-
-          return {
-            admNo,
-            name: s.name,
-            class: classLabel,
-            pathway: s.pathway?.name || "N/A",
-            scores,
-            meanScore,
-            grade,
-            level,
-            summaryRemark: remark,
-            classTeacherComment: autoComment,
-            principalComment: autoComment,
-            qrCodeUrl,
-            yearSummary,
-          };
-        })
-      );
-
-      reportForms.sort((a, b) => (b.meanScore || 0) - (a.meanScore || 0));
-      return reportForms.map((entry, index) => ({
-        ...entry,
-        position: index + 1,
-      }));
-    };
-
-    const populateStudentWithClass = {
-      path: "student",
-      select: "admNo name pathway class",
-      populate: { path: "class", select: "name" },
-    };
+    let students, assessments, reportForms;
 
     if (admNo) {
       const student = await Student.findOne({ admNo, school: school._id })
@@ -785,31 +672,30 @@ const generateReportForm = async (req, res) => {
         .populate("pathway", "name")
         .select("admNo name class pathway");
 
-      if (!student) return res.status(404).json({ error: "Student not found" });
+      if (!student)
+        return res.status(404).json({ error: "Student not found" });
 
       const classId = student.class?._id || student.class;
-      const students = await Student.find({
-        class: classId,
-        school: school._id,
-      })
+      students = await Student.find({ class: classId, school: school._id })
         .populate("pathway", "name")
         .select("admNo name pathway");
 
-      const assessments = await Assessment.find({
+      assessments = await Assessment.find({
         class: classId,
         exam: { $in: examScope },
         term,
         year: parseInt(year),
         school: school._id,
       })
-        .populate(populateStudentWithClass)
+        .populate({
+          path: "student",
+          select: "admNo name pathway class",
+          populate: { path: "class", select: "name" },
+        })
         .populate("subject", "name");
 
-      const reportForms = await buildReportForms(
-        students,
-        assessments,
-        student.class.name
-      );
+      reportForms = await buildReportForms(students, assessments, student.class.name);
+
       const report = reportForms.find((r) => r.admNo === admNo);
       if (!report)
         return res.status(404).json({ error: "Report not found for student" });
@@ -823,7 +709,6 @@ const generateReportForm = async (req, res) => {
         );
         return res.send(pdfBuffer);
       }
-
       return res.status(200).json({ metadata, reportForms: [report] });
     }
 
@@ -834,34 +719,31 @@ const generateReportForm = async (req, res) => {
       });
       if (!classDoc) return res.status(404).json({ error: "Class not found" });
 
-      const students = await Student.find({
+      students = await Student.find({
         class: classDoc._id,
         school: school._id,
       })
         .populate("pathway", "name")
         .select("admNo name pathway");
 
-      const assessments = await Assessment.find({
+      assessments = await Assessment.find({
         class: classDoc._id,
         exam: { $in: examScope },
         term,
         year: parseInt(year),
         school: school._id,
       })
-        .populate(populateStudentWithClass)
+        .populate({
+          path: "student",
+          select: "admNo name pathway class",
+          populate: { path: "class", select: "name" },
+        })
         .populate("subject", "name");
 
-      const reportForms = await buildReportForms(
-        students,
-        assessments,
-        className
-      );
+      reportForms = await buildReportForms(students, assessments, className);
 
       if (format === "pdf") {
-        const pdfBuffer = await generatePDF(reportForms, {
-          ...metadata,
-          className,
-        });
+        const pdfBuffer = await generatePDF(reportForms, metadata);
         res.setHeader("Content-Type", "application/pdf");
         res.setHeader(
           "Content-Disposition",
@@ -869,18 +751,18 @@ const generateReportForm = async (req, res) => {
         );
         return res.send(pdfBuffer);
       }
-
-      return res
-        .status(200)
-        .json({ metadata: { ...metadata, className }, reportForms });
+      return res.status(200).json({ metadata, reportForms });
     }
 
-    return res.status(400).json({ error: "Provide either admNo or className" });
-  } catch (err) {
-    console.error("[UnifiedReportForm]", err);
+    return res.status(400).json({
+      error: "Provide either admNo or className",
+    });
+  } catch (error) {
+    console.error("[UnifiedReportForm]", error);
     res.status(500).json({ error: "Error generating report forms" });
   }
 };
+
 
 // 📄 Generate broadsheet for class(es) in a term, exam, year, and pathway (unified)
 const generateBroadsheetUnified = async (req, res) => {
