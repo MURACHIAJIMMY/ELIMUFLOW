@@ -24,6 +24,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.18.2",
     "node-cron": "^4.2.1",
+    "pdfkit": "^0.17.2",
     "puppeteer": "^24.26.1",
     "qrcode": "^1.5.4",
     "sparse-bitfield": "^3.0.3"
