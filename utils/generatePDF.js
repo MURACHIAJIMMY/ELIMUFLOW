@@ -1,7 +1,10 @@
 const puppeteer = require("puppeteer");
 
 const generatePDF = async (reportForms, metadata) => {
-  // Use dynamic exam scope from metadata if available
+  if (!reportForms || reportForms.length === 0) {
+    throw new Error("No report forms provided for PDF generation");
+  }
+
   const examScope = Array.isArray(metadata.examScope) && metadata.examScope.length
     ? metadata.examScope
     : [metadata.examType];
@@ -65,7 +68,7 @@ const generatePDF = async (reportForms, metadata) => {
             <p><strong>Principal Comment:</strong> ${report.principalComment}</p>
             <div class="bottom-section">
               <div class="footer">— ${metadata.schoolName} —</div>
-              ${report.qrUrl ? `<img src="${report.qrUrl}" class="qr-code" />` : ""}
+              ${report.qrCodeUrl ? `<img src="${report.qrCodeUrl}" class="qr-code" />` : ""}
             </div>
           </div>
         `).join("")}

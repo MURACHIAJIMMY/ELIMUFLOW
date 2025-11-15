@@ -726,24 +726,25 @@ const generateReportForm = async (req, res) => {
           const { grade, remark } = meanRaw !== null ? getGradeRemark(meanRaw) : { grade: null, remark: "Not Assessed" };
           const level = extractLevel(grade);
           const autoComment = autoCommentByGrade[grade] || "Not Assessed";
-          const qrUrl = await generateQRCode(generateQRUrl(admNo));
-          const yearSummary = buildMultiGradeSummary(admNo);
+          const qrCodeUrl = await generateQRCode(generateQRUrl(admNo));
+const yearSummary = buildMultiGradeSummary(admNo);
 
-          return {
-            admNo,
-            name: s.name,
-            class: classLabel,
-            pathway: s.pathway?.name || "N/A",
-            scores,
-            meanScore,
-            grade,
-            level,
-            summaryRemark: remark,
-            classTeacherComment: autoComment,
-            principalComment: autoComment,
-            qrUrl,
-            yearSummary
-          };
+return {
+  admNo,
+  name: s.name,
+  class: classLabel,
+  pathway: s.pathway?.name || "N/A",
+  scores,
+  meanScore,
+  grade,
+  level,
+  summaryRemark: remark,
+  classTeacherComment: autoComment,
+  principalComment: autoComment,
+  qrCodeUrl,   // <-- match generatePDF
+  yearSummary,
+};
+
         })
       );
 
@@ -819,16 +820,20 @@ const generateReportForm = async (req, res) => {
       const reportForms = await buildReportForms(students, assessments, className, examScope);
 
       if (format === "pdf") {
-        try {
-          const pdfBuffer = await generatePDF(reportForms, { ...metadata, className });
-          res.setHeader("Content-Type", "application/pdf");
-          res.setHeader("Content-Disposition", `attachment; filename="${className}_reportforms.pdf"`);
-          return res.send(pdfBuffer);
-        } catch (err) {
-          console.error("[PDF Generation Error]", err);
-          return res.status(500).json({ error: "Failed to generate PDF" });
-        }
-      }
+  if (!reportForms || reportForms.length === 0) {
+    return res.status(404).json({ error: "No report forms found for this class" });
+  }
+  try {
+    const pdfBuffer = await generatePDF(reportForms, { ...metadata, className });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${className}_reportforms.pdf"`);
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error("[PDF Generation Error]", err);
+    return res.status(500).json({ error: "Failed to generate PDF", details: err.message });
+  }
+}
+
 
       return res.status(200).json({ metadata: { ...metadata, className }, reportForms });
     }
