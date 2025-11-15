@@ -146,17 +146,8 @@ const generatePDF = async (reportForms, metadata) => {
   await page.setContent(html, { waitUntil: "networkidle0" });
   await new Promise(resolve => setTimeout(resolve, 300));
 
-  const pdfBuffer = await page.pdf({
-  format: "A4",
-  printBackground: true,
-  margin: {
-    top: "10mm",
-    bottom: "15mm",   // ✅ extra space for footer/QR
-    left: "10mm",
-    right: "10mm"
-  }
-});
-await browser.close();
+  const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
+  await browser.close();
 
   return pdfBuffer;
 };
