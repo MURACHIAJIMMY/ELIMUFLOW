@@ -54,10 +54,9 @@ app.use('/api/schools', schoolRoutes);
 app.use('/api/admin', promotionRoute);
 app.use('/api', yearRoutes);
 // ✅ Server start
-console.log("Using Chromium from:", puppeteer.executablePath());
-
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}🚀🚀`));
+console.log("Using Chromium from:", puppeteer.executablePath());
 // ✅ Promotion scheduler
 const cron = require('node-cron');
 const promoteStudents = require('./utils/promoteStudents');
