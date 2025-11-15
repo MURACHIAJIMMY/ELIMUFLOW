@@ -15,7 +15,13 @@ const generatePDF = async (reportForms, metadata) => {
         <style>
           @media print { .report-page { page-break-before: always; } }
           body { font-family: Arial, sans-serif; font-size: 13px; margin: 0; padding: 0; }
-          .report-page { padding: 25px 20px; border: 2px solid red; min-height: 1000px; }
+          .report-page {
+  padding: 25px 20px;
+  border: 2px solid red;
+  min-height: 1000px;
+  margin: 10mm;        /* ✅ adds space so border fits inside page */
+  box-sizing: border-box;
+}
           .school-header { display: flex; border-bottom: 2px solid #000; margin-bottom: 10px; }
           .school-logo { height: 85px; margin-left: 40px; }
           .school-info { flex: 1; margin-left: 40px; }
@@ -48,7 +54,7 @@ const generatePDF = async (reportForms, metadata) => {
                 <tr>
                   <th>Learning Area</th>
                   ${examScope.map((ex) => `<th>${ex}</th>`).join("")}
-                  <th>Total</th><th>Grade</th><th>Level</th><th>Remark</th>
+                  <th>Total</th><th>Rubric</th><th>Level</th><th>Remark</th>
                 </tr>
               </thead>
               <tbody>
@@ -65,7 +71,7 @@ const generatePDF = async (reportForms, metadata) => {
               </tbody>
             </table>
             <p><strong>Mean Score:</strong> ${report.meanScore ?? "-"}</p>
-            <p><strong>Grade:</strong> ${report.grade ?? "-"}</p>
+            <p><strong>Rubric:</strong> ${report.grade ?? "-"}</p>
             <p><strong>Level:</strong> ${report.level ?? "-"}</p>
             <p><strong>Position:</strong> ${report.position ?? "-"}</p>
             <p><strong>Class Teacher Comment:</strong> ${report.classTeacherComment}</p>

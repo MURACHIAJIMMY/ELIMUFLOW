@@ -649,31 +649,45 @@ const generateReportForm = async (req, res) => {
         groupedScores[admNo][subject][key] = score;
       });
 
+      // ✅ Summary table: averages term meanscores, overall = average of term means
       const buildMultiGradeSummary = (admNo) => {
         const summary = [];
         const gradeLevels = ["10", "11", "12"];
+
         gradeLevels.forEach((grade) => {
           const termMeans = {};
           const overallTerms = [];
-          const termScores = [];
 
-          Object.entries(groupedScores[admNo] || {}).forEach(([subject, termMap]) => {
+          ["Term 1", "Term 2", "Term 3"].forEach((termName) => {
+            const examMeans = [];
+
             examScope.forEach((examName) => {
-              const key = `${grade}-${term}-${examName}`;
-              if (termMap[key] >= 0) termScores.push(termMap[key]);
+              const key = `${grade}-${termName}-${examName}`;
+              const subjectScores = [];
+
+              Object.entries(groupedScores[admNo] || {}).forEach(([subject, termMap]) => {
+                if (typeof termMap[key] === "number") {
+                  subjectScores.push(termMap[key]);
+                }
+              });
+
+              if (subjectScores.length) {
+                const mean = subjectScores.reduce((a, b) => a + b, 0) / subjectScores.length;
+                examMeans.push(mean);
+              }
             });
+
+            if (examMeans.length) {
+              const termMean = examMeans.reduce((a, b) => a + b, 0) / examMeans.length;
+              const { grade: g } = getGradeRemark(termMean);
+              termMeans[termName] = `${Math.round(termMean)} / ${g}`;
+              overallTerms.push(termMean);
+            } else {
+              termMeans[termName] = `- / -`;
+            }
           });
 
-          if (termScores.length) {
-            const mean = termScores.reduce((a, b) => a + b, 0) / termScores.length;
-            const { grade: g } = getGradeRemark(mean);
-            termMeans[term] = `${Math.round(mean)} / ${g}`;
-            overallTerms.push(mean);
-          } else {
-            termMeans[term] = `- / -`;
-          }
-
-          if (overallTerms.length > 0) {
+          if (overallTerms.length) {
             const overallMean = overallTerms.reduce((a, b) => a + b, 0) / overallTerms.length;
             const { grade: g } = getGradeRemark(overallMean);
             const level = extractLevel(g);
@@ -684,7 +698,9 @@ const generateReportForm = async (req, res) => {
 
           summary.push({
             grade,
-            [term]: termMeans[term],
+            "Term 1": termMeans["Term 1"],
+            "Term 2": termMeans["Term 2"],
+            "Term 3": termMeans["Term 3"],
             overall: termMeans["Overall"]
           });
         });
@@ -720,31 +736,30 @@ const generateReportForm = async (req, res) => {
             if (avgRaw !== null) totalScore += avgRaw;
           });
 
-          const assessedCount = scores.length;
-          const meanRaw = assessedCount > 0 ? totalScore / assessedCount : null;
+          // ✅ Mean score: reflect all subjects (assessed or not)
+          const meanRaw = scores.length > 0 ? totalScore / scores.length : null;
           const meanScore = meanRaw !== null ? Math.round(meanRaw) : null;
           const { grade, remark } = meanRaw !== null ? getGradeRemark(meanRaw) : { grade: null, remark: "Not Assessed" };
           const level = extractLevel(grade);
           const autoComment = autoCommentByGrade[grade] || "Not Assessed";
           const qrCodeUrl = await generateQRCode(generateQRUrl(admNo));
-const yearSummary = buildMultiGradeSummary(admNo);
+          const yearSummary = buildMultiGradeSummary(admNo);
 
-return {
-  admNo,
-  name: s.name,
-  class: classLabel,
-  pathway: s.pathway?.name || "N/A",
-  scores,
-  meanScore,
-  grade,
-  level,
-  summaryRemark: remark,
-  classTeacherComment: autoComment,
-  principalComment: autoComment,
-  qrCodeUrl,   // <-- match generatePDF
-  yearSummary,
-};
-
+          return {
+            admNo,
+            name: s.name,
+            class: classLabel,
+            pathway: s.pathway?.name || "N/A",
+            scores,
+            meanScore,
+            grade,
+            level,
+            summaryRemark: remark,
+            classTeacherComment: autoComment,
+            principalComment: autoComment,
+            qrCodeUrl,
+            yearSummary
+          };
         })
       );
 
@@ -807,7 +822,7 @@ return {
         .populate("pathway", "name")
         .select("admNo name pathway");
 
-            const assessments = await Assessment.find({
+      const assessments = await Assessment.find({
         class: classDoc._id,
         exam: { $in: examScope },
         term,
@@ -820,20 +835,19 @@ return {
       const reportForms = await buildReportForms(students, assessments, className, examScope);
 
       if (format === "pdf") {
-  if (!reportForms || reportForms.length === 0) {
-    return res.status(404).json({ error: "No report forms found for this class" });
-  }
-  try {
-    const pdfBuffer = await generatePDF(reportForms, { ...metadata, className });
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${className}_reportforms.pdf"`);
-    return res.send(pdfBuffer);
-  } catch (err) {
-    console.error("[PDF Generation Error]", err);
-    return res.status(500).json({ error: "Failed to generate PDF", details: err.message });
-  }
-}
-
+        if (!reportForms || reportForms.length === 0) {
+          return res.status(404).json({ error: "No report forms found for this class" });
+        }
+        try {
+          const pdfBuffer = await generatePDF(reportForms, { ...metadata, className });
+          res.setHeader("Content-Type", "application/pdf");
+          res.setHeader("Content-Disposition", `attachment; filename="${className}_reportforms.pdf"`);
+          return res.send(pdfBuffer);
+        } catch (err) {
+          console.error("[PDF Generation Error]", err);
+          return res.status(500).json({ error: "Failed to generate PDF", details: err.message });
+        }
+      }
 
       return res.status(200).json({ metadata: { ...metadata, className }, reportForms });
     }
