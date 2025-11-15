@@ -37,6 +37,7 @@ const paperConfigRoutes = require('./routes/PaperConfigRoutes');
 const schoolRoutes = require('./routes/schoolRoutes');
 const promotionRoute = require('./routes/promotionRoute');
 const yearRoutes = require('./routes/yearRoutes');
+const puppeteer = require("puppeteer");
 
 
 
