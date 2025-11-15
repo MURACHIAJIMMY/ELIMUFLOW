@@ -77,6 +77,7 @@ const generatePDF = async (reportForms, metadata) => {
   `;
 
   const browser = await puppeteer.launch({
+    executablePath: puppeteer.executablePath(), // ✅ force bundled Chromium
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
     headless: "new"
   });
