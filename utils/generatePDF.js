@@ -76,15 +76,24 @@ const generatePDF = async (reportForms, metadata) => {
     </html>
   `;
 
-  // Launch Puppeteer with default bundled Chromium, no custom executablePath
   const browser = await puppeteer.launch({
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    headless: "new",
+    executablePath: puppeteer.executablePath(),
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-features=IsolateOrigins,site-per-process"
+    ]
   });
 
   const page = await browser.newPage();
   await page.setViewport({ width: 1200, height: 1600 });
   await page.setContent(html, { waitUntil: "networkidle0" });
+  await page.waitForTimeout(300);
 
   const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
   await browser.close();
