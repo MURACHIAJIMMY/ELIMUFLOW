@@ -585,28 +585,18 @@ const fetchAssessments = async (req, res) => {
 };
 
 
-// Singleton Puppeteer browser instance for reuse
-let browserPromise = null;
-async function getBrowser() {
-  if (!browserPromise) {
-    browserPromise = puppeteer.launch({
-      executablePath: path.resolve(
-        __dirname,
-        "../.chrome-cache/chrome/linux-142.0.7444.59/chrome-linux64/chrome"
-      ),
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
-  }
-  return browserPromise;
-}
+// Your existing buildMultiGradeSummary function (unchanged)
+// Your existing buildReportForms function (unchanged)
+
 const generateReportForm = async (req, res) => {
   try {
     const { admNo, className, term, year, exam, format } = req.query;
 
-    if (!term || !year || !exam)
+    if (!term || !year || !exam) {
       return res.status(400).json({
         error: "Missing required parameters: term, year, and exam must be specified",
       });
+    }
     if (!admNo && !className)
       return res.status(400).json({
         error: "Provide either admNo for single report or className for bulk report",
@@ -627,7 +617,6 @@ const generateReportForm = async (req, res) => {
       examType: exam,
     };
 
-    // Dynamically get all exams for the term and year
     const examScope = await Assessment.distinct("exam", {
       term,
       year: parseInt(year),
@@ -640,17 +629,16 @@ const generateReportForm = async (req, res) => {
         term
       )}&year=${year}&exam=${encodeURIComponent(exam)}`;
 
-    // Your existing buildMultiGradeSummary and buildReportForms logic should be here
+    // Build report forms logic reused from your code using buildReportForms
 
     let students, assessments, reportForms;
 
     if (admNo) {
-      // Single student report generation logic
+      // Single student report logic
       const student = await Student.findOne({ admNo, school: school._id })
         .populate("class", "name")
         .populate("pathway", "name")
         .select("admNo name class pathway");
-
       if (!student) return res.status(404).json({ error: "Student not found" });
 
       const classId = student.class?._id || student.class;
@@ -690,7 +678,7 @@ const generateReportForm = async (req, res) => {
     }
 
     if (className) {
-      // Bulk class report generation logic
+      // Bulk class report logic
       const classDoc = await Class.findOne({
         name: new RegExp(`^${className}$`, "i"),
         school: school._id,
@@ -721,7 +709,10 @@ const generateReportForm = async (req, res) => {
       reportForms = await buildReportForms(students, assessments, className);
 
       if (format === "pdf") {
-        const pdfBuffer = await generatePDF(reportForms, metadata);
+        const pdfBuffer = await generatePDF(reportForms, {
+          ...metadata,
+          className,
+        });
         res.setHeader("Content-Type", "application/pdf");
         res.setHeader(
           "Content-Disposition",
@@ -729,14 +720,12 @@ const generateReportForm = async (req, res) => {
         );
         return res.send(pdfBuffer);
       }
-      return res.status(200).json({ metadata, reportForms });
+      return res.status(200).json({ metadata: { ...metadata, className }, reportForms });
     }
 
-    return res.status(400).json({
-      error: "Provide either admNo or className",
-    });
-  } catch (error) {
-    console.error("[UnifiedReportForm]", error);
+    return res.status(400).json({ error: "Provide either admNo or className" });
+  } catch (err) {
+    console.error("[UnifiedReportForm]", err);
     res.status(500).json({ error: "Error generating report forms" });
   }
 };
