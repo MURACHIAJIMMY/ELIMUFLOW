@@ -93,7 +93,9 @@ const generatePDF = async (reportForms, metadata) => {
   const page = await browser.newPage();
   await page.setViewport({ width: 1200, height: 1600 });
   await page.setContent(html, { waitUntil: "networkidle0" });
-  await page.waitForTimeout(300);
+
+  // short pause to let images/fonts settle
+  await new Promise(resolve => setTimeout(resolve, 300));
 
   const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
   await browser.close();
@@ -102,6 +104,7 @@ const generatePDF = async (reportForms, metadata) => {
 };
 
 module.exports = generatePDF;
+
 
 // const pdf = require("html-pdf");
 
