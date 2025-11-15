@@ -76,11 +76,11 @@ const generatePDF = async (reportForms, metadata) => {
     </html>
   `;
 
-  const browser = await puppeteer.launch({
-    executablePath: puppeteer.executablePath(), // ✅ force bundled Chromium
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    headless: "new"
-  });
+ const browser = await puppeteer.launch({
+  executablePath: require("puppeteer").executablePath(), // ✅ force bundled Chromium
+  args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  headless: "new"
+});
 
   const page = await browser.newPage();
   await page.setViewport({ width: 1200, height: 1600 });
