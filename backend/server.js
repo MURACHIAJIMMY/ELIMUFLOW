@@ -6,16 +6,19 @@ require('dotenv').config();
 const app = express();
 
 // ✅ Middleware
-app.use(cors());
 app.use(express.json());
+
 const corsOptions = {
-  origin: 'http://localhost:5173',
+  origin: [
+    'http://localhost:5173',              // local dev
+    process.env.FRONTEND_URL              // production frontend from .env
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 };
 
-app.use(cors(corsOptions)); // ✅ Handles everything
+app.use(cors(corsOptions)); // ✅ Handles both local + deployed frontend
 
 // ✅ MongoDB connection
 const connectDB = require('./config/db');
