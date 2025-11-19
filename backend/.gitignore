@@ -1,0 +1,17 @@
+# 🔐 Secrets
+.env
+
+# 📦 Dependencies
+node_modules/
+
+# 🛠️ Build artifacts
+dist/
+build/
+
+# 🧪 Logs
+*.log
+
+# 🧹 System files
+.DS_Store
+.vscode/
+.idea/
