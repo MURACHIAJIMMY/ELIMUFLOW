@@ -22,10 +22,10 @@ const updateEnrollment = async () => {
       const previousYear = student.enrollmentYear;
 
       if (defaultClass) {
-        student.class = defaultClass.name;
+        student.class = defaultClass._id;
       }
 
-      student.subjectCount = student.subjects?.length || 0;
+      student.subjectCount = student.selectedSubjects?.length || 0;
       student.enrollmentYear = academicYear;
 
       await student.save();
@@ -33,7 +33,7 @@ const updateEnrollment = async () => {
 
       auditTrail.push({
         admNo: student.admNo,
-        name: student.fullName || `${student.firstName} ${student.lastName}`,
+        name: student.name,
         fromClass: previousClass,
         toClass: student.class,
         fromYear: previousYear,
@@ -42,12 +42,9 @@ const updateEnrollment = async () => {
     }
 
     console.log(`📘 Enrollment sync completed: ${updatedCount} students updated`);
-    console.table(auditTrail); // Optional: logs each change in tabular format
+    console.table(auditTrail);
 
-    return {
-      updatedCount,
-      auditTrail
-    };
+    return { updatedCount, auditTrail };
   } catch (err) {
     console.error('[UpdateEnrollment]', err);
     throw err;

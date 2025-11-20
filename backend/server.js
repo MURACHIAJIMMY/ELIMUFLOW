@@ -2,7 +2,8 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 require('dotenv').config();
-
+const cron = require('node-cron');
+const promoteStudents = require('./utils/promoteStudents');
 const app = express();
 
 // ✅ Middleware
@@ -62,15 +63,10 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}🚀🚀`));
 console.log("Using Chromium from:", puppeteer.executablePath());
 // ✅ Promotion scheduler
-const cron = require('node-cron');
-const promoteStudents = require('./utils/promoteStudents');
+
 
 // ⏰ Run every January 3rd at 2:00 AM
 cron.schedule('0 2 3 1 *', () => {
   console.log('📅 Running annual promotion...');
   promoteStudents();
 });
-// cron.schedule('* * * * *', () => {
-//   console.log('🧪 Running test promotion...');
-//   promoteStudents();
-// });
