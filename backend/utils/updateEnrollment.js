@@ -3,7 +3,7 @@ const Class = require('../models/class');
 
 const updateEnrollment = async () => {
   try {
-    const students = await Student.find({ status: 'active' });
+    const students = await Student.find({ status: 'active' }).populate('class');
     const academicYear = new Date().getFullYear();
 
     let updatedCount = 0;
@@ -11,18 +11,20 @@ const updateEnrollment = async () => {
 
     for (const student of students) {
       const grade = student.currentGrade;
+      const stream = student.class?.stream; // preserve stream
 
-      const defaultClass = await Class.findOne({
+      const nextClass = await Class.findOne({
         grade,
-        isDefault: true,
+        stream,
+        school: student.school,
         academicYear
       });
 
       const previousClass = student.class;
       const previousYear = student.enrollmentYear;
 
-      if (defaultClass) {
-        student.class = defaultClass._id;
+      if (nextClass) {
+        student.class = nextClass._id;
       }
 
       student.subjectCount = student.selectedSubjects?.length || 0;

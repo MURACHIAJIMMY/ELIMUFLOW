@@ -4,28 +4,38 @@ const Class = require('../models/class');
 const promoteStudents = async ({ triggeredBy = 'system' } = {}) => {
   try {
     const academicYear = new Date().getFullYear();
-    const students = await Student.find({ status: 'active' });
+
+    // Fetch active students and populate their current class to access stream
+    const students = await Student.find({ status: 'active' }).populate('class');
 
     for (const student of students) {
       const fromGrade = student.currentGrade;
 
       if (fromGrade === 12) {
+        // Graduate Grade 12 students
         student.status = 'graduated';
       } else {
         const toGrade = fromGrade + 1;
         student.currentGrade = toGrade;
 
-        // 🔄 Find default class for new grade
-        const defaultClass = await Class.findOne({
+        // 🔄 Find the matching class in the same stream for the new grade
+        const stream = student.class?.stream; // keep same stream (E, N, S, etc.)
+        const nextClass = await Class.findOne({
           grade: toGrade,
-          isDefault: true,
+          stream,
+          school: student.school,
           academicYear
         });
 
-        if (defaultClass) {
-          student.class = defaultClass._id;
+        if (nextClass) {
+          student.class = nextClass._id;
+        } else {
+          console.warn(
+            `⚠️ No class found for grade ${toGrade}, stream ${stream}, year ${academicYear}`
+          );
         }
 
+        // Log promotion history
         student.promotionHistory.push({
           year: academicYear,
           fromGrade,
@@ -38,7 +48,7 @@ const promoteStudents = async ({ triggeredBy = 'system' } = {}) => {
       await student.save();
     }
 
-    console.log('🎓 Promotion + class reassignment completed');
+    console.log('🎓 Promotion updated grade + class successfully');
   } catch (err) {
     console.error('[PromoteStudents]', err);
   }
