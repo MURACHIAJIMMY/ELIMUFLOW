@@ -6,24 +6,12 @@ import { toast } from "sonner";
 import {
   promoteStudentsApi,
   syncEnrollmentApi,
-  // getClasses,
 } from '../Api';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [loadingPromotion, setLoadingPromotion] = useState(false);
   const [loadingSync, setLoadingSync] = useState(false);
-  // const [loadingClasses, setLoadingClasses] = useState(false);
-  // const [classes, setClasses] = useState([]);
-
-  // // Load classes on mount (optional, remove if not needed visually)
-  // React.useEffect(() => {
-  //   setLoadingClasses(true);
-  //   getClasses()
-  //     .then(setClasses)
-  //     .catch(() => setClasses([]))
-  //     .finally(() => setLoadingClasses(false));
-  // }, []);
 
   // Trigger promotion
   const handlePromotion = async () => {
@@ -89,19 +77,7 @@ export default function AdminDashboard() {
           ← Back to Dashboard
         </button>
       </div>
-      {/* Optional: classes list block */}
-      {/* 
-      {!loadingClasses && classes.length > 0 && (
-        <div className="mx-auto mt-6 max-w-lg text-xs text-gray-600">
-          <h2 className="text-base font-bold mb-2">Available Classes:</h2>
-          <div className="flex flex-wrap gap-2">
-            {classes.map(cls => (
-              <span key={cls._id} className="bg-indigo-100 px-2 py-1 rounded">{cls.name}</span>
-            ))}
-          </div>
-        </div>
-      )}
-      */}
+      
     </div>
   );
 }
