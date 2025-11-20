@@ -29,7 +29,7 @@ function App() {
         <Route path="/subject-selection" element={<SubjectSelection />} />
         <Route path="/paper-config" element={<PaperConfig />} /> 
         <Route path="/Assessments" element={<Assessments/>}/>
-        <Route path="/promotion" element={<Promotions/>} />
+        <Route path="/admin/promotions" element={<Promotions />} />
         {/* <Route path="/grades" element={<Grades />} /> */}
       </Routes>
     </Router>
