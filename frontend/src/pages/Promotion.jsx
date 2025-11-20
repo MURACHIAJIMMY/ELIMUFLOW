@@ -6,32 +6,31 @@ import { toast } from "sonner";
 import {
   promoteStudentsApi,
   syncEnrollmentApi,
-  getClasses,
+  // getClasses,
 } from '../Api';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-
   const [loadingPromotion, setLoadingPromotion] = useState(false);
   const [loadingSync, setLoadingSync] = useState(false);
-  const [loadingClasses, setLoadingClasses] = useState(false);
-  const [classes, setClasses] = useState([]);
+  // const [loadingClasses, setLoadingClasses] = useState(false);
+  // const [classes, setClasses] = useState([]);
 
-  // Load classes on mount (optional: just for display)
-  React.useEffect(() => {
-    setLoadingClasses(true);
-    getClasses()
-      .then(setClasses)
-      .catch(() => setClasses([]))
-      .finally(() => setLoadingClasses(false));
-  }, []);
+  // // Load classes on mount (optional, remove if not needed visually)
+  // React.useEffect(() => {
+  //   setLoadingClasses(true);
+  //   getClasses()
+  //     .then(setClasses)
+  //     .catch(() => setClasses([]))
+  //     .finally(() => setLoadingClasses(false));
+  // }, []);
 
   // Trigger promotion
   const handlePromotion = async () => {
     setLoadingPromotion(true);
     try {
       await promoteStudentsApi();
-      toast.success('Promotion triggered successfully');
+      toast.success('🎓 Promotion triggered successfully');
     } catch {
       toast.error('Promotion trigger failed');
     } finally {
@@ -44,7 +43,7 @@ export default function AdminDashboard() {
     setLoadingSync(true);
     try {
       const { updatedCount } = await syncEnrollmentApi();
-      toast.success(`Enrollment synced: ${updatedCount} students updated`);
+      toast.success(`📘 Enrollment synced: ${updatedCount} students updated`);
     } catch {
       toast.error('Enrollment sync failed');
     } finally {
@@ -53,44 +52,56 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div>
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-white flex flex-col">
       <TopRightLogout />
-      <h1>Admin Dashboard</h1>
-      <div style={{ marginBottom: "1rem" }}>
-        <button onClick={handlePromotion} disabled={loadingPromotion}>
-          {loadingPromotion ? <Spinner size={16} /> : 'Trigger Promotion'}
-        </button>
+      <div className="flex-1 flex flex-col justify-center items-center">
+        <h1 className="text-3xl font-extrabold text-indigo-700 mb-8">
+          Admin Promotion & Enrollment
+        </h1>
+        <div className="flex flex-col gap-6 items-center bg-white/90 shadow-lg p-10 rounded-2xl">
+          <button
+            onClick={handlePromotion}
+            disabled={loadingPromotion}
+            className={`w-64 px-6 py-3 rounded-lg text-lg font-semibold 
+              bg-indigo-600 text-white shadow-md hover:bg-indigo-700
+              transition-all ${
+                loadingPromotion ? "opacity-70 cursor-wait" : ""
+            }`}
+          >
+            {loadingPromotion ? <span className="inline-flex items-center gap-2"><Spinner size={22}/> Promoting...</span> : "🎓 Trigger Promotion"}
+          </button>
+          <button
+            onClick={handleSyncEnrollment}
+            disabled={loadingSync}
+            className={`w-64 px-6 py-3 rounded-lg text-lg font-semibold 
+              bg-green-600 text-white shadow-md hover:bg-green-700
+              transition-all ${
+                loadingSync ? "opacity-70 cursor-wait" : ""
+            }`}
+          >
+            {loadingSync ? <span className="inline-flex items-center gap-2"><Spinner size={22}/> Syncing...</span> : "📘 Sync Enrollment"}
+          </button>
+        </div>
         <button
-          onClick={handleSyncEnrollment}
-          disabled={loadingSync}
-          style={{ marginLeft: '0.5rem' }}
+          onClick={() => navigate("/dashboard")}
+          className="mt-10 w-64 px-6 py-2 rounded-lg bg-indigo-400 text-white font-semibold hover:bg-indigo-600 shadow"
         >
-          {loadingSync ? <Spinner size={16} /> : 'Sync Enrollment'}
+          ← Back to Dashboard
         </button>
       </div>
-      <hr />
-
-      {loadingClasses ? (
-        <Spinner />
-      ) : (
-        classes.length > 0 && (
-          <div>
-            <h2>Classes in school: </h2>
-            <ul>
-              {classes.map(cls => (
-                <li key={cls._id}>{cls.name}</li>
-              ))}
-            </ul>
+      {/* Optional: classes list block */}
+      {/* 
+      {!loadingClasses && classes.length > 0 && (
+        <div className="mx-auto mt-6 max-w-lg text-xs text-gray-600">
+          <h2 className="text-base font-bold mb-2">Available Classes:</h2>
+          <div className="flex flex-wrap gap-2">
+            {classes.map(cls => (
+              <span key={cls._id} className="bg-indigo-100 px-2 py-1 rounded">{cls.name}</span>
+            ))}
           </div>
-        )
+        </div>
       )}
-
-      <button
-        onClick={() => navigate("/dashboard")}
-        className="mt-6 w-full bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700"
-      >
-        ← Back to Dashboard
-      </button>
+      */}
     </div>
   );
 }
