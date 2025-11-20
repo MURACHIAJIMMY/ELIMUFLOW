@@ -1009,3 +1009,20 @@ export async function downloadBroadsheetPDFApi(params) {
 
   return res.data; // Blob
 }
+// Admin Operations
+// Trigger student promotion
+export async function promoteStudentsApi() {
+  const token = localStorage.getItem("token");
+  const res = await api.post("/admin/trigger-promotion", {}, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  return res.data;
+}
+
+export async function syncEnrollmentApi() {
+  const token = localStorage.getItem("token");
+  const res = await api.post("/admin/sync-enrollment", {}, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  return res.data;
+}

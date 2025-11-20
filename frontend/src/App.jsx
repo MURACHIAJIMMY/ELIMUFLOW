@@ -11,6 +11,7 @@ import Subjects from "./pages/Subjects";
 import SubjectSelection from "./pages/SubjectSelection";
 import PaperConfig from "./pages/PaperConfig";
 import Assessments from "./pages/Assessment";
+import Promotions from "./pages/Promotion";
 function App() {
   return (
     <Router>
@@ -28,6 +29,7 @@ function App() {
         <Route path="/subject-selection" element={<SubjectSelection />} />
         <Route path="/paper-config" element={<PaperConfig />} /> 
         <Route path="/Assessments" element={<Assessments/>}/>
+        <Route path="/promotion" element={<Promotions/>} />
         {/* <Route path="/grades" element={<Grades />} /> */}
       </Routes>
     </Router>
