@@ -42,6 +42,7 @@ const schoolRoutes = require('./routes/schoolRoutes');
 const promotionRoute = require('./routes/promotionRoute');
 const yearRoutes = require('./routes/yearRoutes');
 const puppeteer = require("puppeteer");
+const feeRoutes = require('./routes/feeRoutes');
 
 
 
@@ -58,6 +59,7 @@ app.use('/api', paperConfigRoutes);
 app.use('/api/schools', schoolRoutes);
 app.use('/api/admin', promotionRoute);
 app.use('/api', yearRoutes);
+app.use('/api/fees', feeRoutes);
 // ✅ Server start
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}🚀🚀`));
