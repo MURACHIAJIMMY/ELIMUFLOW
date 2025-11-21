@@ -1,24 +1,21 @@
-// controllers/financeController.js
+// controllers/feeController.js
 const Student = require('../models/student');
 const Class = require('../models/class');
-const Payment = require('../models/fee');
-const { generateReceiptNo } = require('../utils/receipt'); // ✅ import helper
+const Fee = require('../models/fee');
+const { generateReceiptNo } = require('../utils/receipt');
 
-// 📌 Create a new payment (supports partial payments)
-const createPayment = async (req, res) => {
+// ➕ Create a new fee transaction
+const createFee = async (req, res) => {
   try {
     const { admNo, termFee, amountPaid, term } = req.body;
     const year = new Date().getFullYear();
 
-    // Find student
     const student = await Student.findOne({ admNo }).populate("class school");
     if (!student) return res.status(404).json({ error: "Student not found" });
 
-    // Generate receipt number
     const receiptNo = await generateReceiptNo(student.school, year);
 
-    // Calculate cumulative paid so far
-    const totalPaid = await Payment.aggregate([
+    const totalPaid = await Fee.aggregate([
       { $match: { student: student._id, term, academicYear: year } },
       { $group: { _id: null, sum: { $sum: "$amountPaid" } } }
     ]);
@@ -26,8 +23,7 @@ const createPayment = async (req, res) => {
     const cumulativePaid = previousTotal + amountPaid;
     const balance = termFee - cumulativePaid;
 
-    // Save payment record
-    const payment = new Payment({
+    const fee = new Fee({
       receiptNo,
       student: student._id,
       school: student.school._id,
@@ -38,10 +34,10 @@ const createPayment = async (req, res) => {
       cumulativePaid,
       balance
     });
-    await payment.save();
+    await fee.save();
 
     res.status(201).json({
-      message: "Payment recorded successfully",
+      message: "Fee recorded successfully",
       receipt: {
         receiptNo,
         student: {
@@ -55,12 +51,12 @@ const createPayment = async (req, res) => {
         amountPaid,
         cumulativePaid,
         balance,
-        dateOfPayment: payment.dateOfPayment
+        dateOfPayment: fee.dateOfPayment
       }
     });
   } catch (err) {
-    console.error("[createPayment]", err);
-    res.status(500).json({ error: "Error recording payment" });
+    console.error("[createFee]", err);
+    res.status(500).json({ error: "Error recording fee" });
   }
 };
 
@@ -71,13 +67,11 @@ const getReceiptByAdmNo = async (req, res) => {
     const student = await Student.findOne({ admNo }).populate("class pathway school");
     if (!student) return res.status(404).json({ error: "Student not found" });
 
-    const payment = await Payment.findOne({ student: student._id })
-      .sort({ dateOfPayment: -1 });
-
-    if (!payment) return res.status(404).json({ error: "No payment found" });
+    const fee = await Fee.findOne({ student: student._id }).sort({ dateOfPayment: -1 });
+    if (!fee) return res.status(404).json({ error: "No fee record found" });
 
     res.json({
-      receiptNo: payment.receiptNo,
+      receiptNo: fee.receiptNo,
       student: {
         admNo: student.admNo,
         name: student.name,
@@ -86,11 +80,11 @@ const getReceiptByAdmNo = async (req, res) => {
         pathway: student.pathway?.name,
         school: student.school?.name
       },
-      termFee: payment.termFee,
-      amountPaid: payment.amountPaid,
-      cumulativePaid: payment.cumulativePaid,
-      balance: payment.balance,
-      dateOfPayment: payment.dateOfPayment
+      termFee: fee.termFee,
+      amountPaid: fee.amountPaid,
+      cumulativePaid: fee.cumulativePaid,
+      balance: fee.balance,
+      dateOfPayment: fee.dateOfPayment
     });
   } catch (err) {
     console.error("[getReceiptByAdmNo]", err);
@@ -108,15 +102,14 @@ const getClassFeesListByName = async (req, res) => {
     const students = await Student.find({ class: classObj._id }).populate("school");
 
     const list = await Promise.all(students.map(async (s) => {
-      const payment = await Payment.findOne({ student: s._id })
-        .sort({ dateOfPayment: -1 });
+      const fee = await Fee.findOne({ student: s._id }).sort({ dateOfPayment: -1 });
 
       return {
         admNo: s.admNo,
         name: s.name,
-        termFee: payment?.termFee ?? 0,
-        cumulativePaid: payment?.cumulativePaid ?? 0,
-        balance: payment?.balance ?? 0
+        termFee: fee?.termFee ?? 0,
+        cumulativePaid: fee?.cumulativePaid ?? 0,
+        balance: fee?.balance ?? 0
       };
     }));
 
@@ -136,7 +129,7 @@ const getClassFeesListByName = async (req, res) => {
 };
 
 module.exports = {
-  createPayment,
+  createFee,
   getReceiptByAdmNo,
   getClassFeesListByName
 };

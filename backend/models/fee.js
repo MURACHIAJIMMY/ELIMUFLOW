@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-const paymentSchema = new mongoose.Schema({
+const feeSchema = new mongoose.Schema({
   // 🔑 Unique receipt number (generated per transaction)
   receiptNo: {
     type: String,
@@ -43,7 +43,7 @@ const paymentSchema = new mongoose.Schema({
   },
   cumulativePaid: {
     type: Number,
-    required: true // total paid so far for this term (calculated at save)
+    required: true // total paid so far for this term
   },
   balance: {
     type: Number,
@@ -58,13 +58,13 @@ const paymentSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // 🔧 Pre-save hook to auto-calculate cumulativePaid + balance
-paymentSchema.pre("save", async function (next) {
+feeSchema.pre("save", async function (next) {
   if (!this.isModified("amountPaid")) return next();
 
-  const Payment = mongoose.model("Payment");
+  const Fee = this.constructor; // ✅ safer than mongoose.model("Fee")
 
   // Sum all previous payments for this student/term/year
-  const totalPaid = await Payment.aggregate([
+  const totalPaid = await Fee.aggregate([
     { $match: { student: this.student, term: this.term, academicYear: this.academicYear } },
     { $group: { _id: null, sum: { $sum: "$amountPaid" } } }
   ]);
@@ -76,4 +76,4 @@ paymentSchema.pre("save", async function (next) {
   next();
 });
 
-module.exports = mongoose.model('Payment', paymentSchema);
+module.exports = mongoose.model('Fee', feeSchema);
