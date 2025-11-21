@@ -1026,3 +1026,30 @@ export async function syncEnrollmentApi() {
   });
   return res.data;
 }
+// fee management
+// ➕ Create a new payment (partial payments supported)
+export async function createFeePayment(payload) {
+  const token = localStorage.getItem("token");
+  const res = await api.post("/fees/create", payload, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  return res.data;
+}
+
+// 📄 Get latest receipt for a student by AdmNo
+export async function getFeeReceiptByAdmNo(admNo) {
+  const token = localStorage.getItem("token");
+  const res = await api.get(`/fees/receipt/${admNo}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  return res.data;
+}
+
+// 📊 Get class fees list by class name
+export async function getClassFeesListByName(className) {
+  const token = localStorage.getItem("token");
+  const res = await api.get(`/fees/class/${className}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  return res.data;
+}
