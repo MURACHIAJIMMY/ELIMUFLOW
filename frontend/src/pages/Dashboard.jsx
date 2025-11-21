@@ -30,7 +30,7 @@ export default function Dashboard() {
           { label: "Paper Config", path: "/paper-config", icon: "📄" },
           { label: "Schools", path: "/schools", icon: "🏢" },
           { label: "Teachers", path: "/teacher-management", icon: "🔐" },
-          { label: "Fees", path: "/fee-management", icon: "🔐" },
+          { label: "Fees", path: "/fee-management", icon: "💰" },
         ]
       : []),
   ];
