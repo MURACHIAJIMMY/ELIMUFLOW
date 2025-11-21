@@ -48,7 +48,7 @@ export default function Fee() {
       setTermFee("");
       setAmountPaid("");
     } catch (err) {
-      toast.error(err?.response?.data?.error || "Error recording payment");
+      toast.error(err?.response?.data?.error || "Error recording fee");
     } finally {
       setIsSubmitting(false);
     }
@@ -100,6 +100,8 @@ export default function Fee() {
           ["Admission No", latestReceipt.student?.admNo ?? ""],
           ["Name", latestReceipt.student?.name ?? ""],
           ["Class", latestReceipt.student?.class ?? ""],
+          ["Grade", latestReceipt.student?.grade ?? ""],
+          ["School", latestReceipt.student?.school ?? ""],
           ["Term Fee", latestReceipt.termFee],
           ["Paid", latestReceipt.amountPaid],
           ["Cumulative Paid", latestReceipt.cumulativePaid],
@@ -237,7 +239,6 @@ export default function Fee() {
           </div>
           {latestReceipt && (
             <div className="mt-3 text-xs w-full bg-gray-50 rounded p-2 border">
-              {/* Arranged view for web */}
               <table className="w-full text-sm mb-2">
                 <tbody>
                   <tr>
@@ -255,6 +256,14 @@ export default function Fee() {
                   <tr>
                     <td className="font-bold">Class</td>
                     <td>{latestReceipt.student?.class ?? ""}</td>
+                  </tr>
+                  <tr>
+                    <td className="font-bold">Grade</td>
+                    <td>{latestReceipt.student?.grade ?? ""}</td>
+                  </tr>
+                  <tr>
+                    <td className="font-bold">School</td>
+                    <td>{latestReceipt.student?.school ?? ""}</td>
                   </tr>
                   <tr>
                     <td className="font-bold">Term Fee</td>
